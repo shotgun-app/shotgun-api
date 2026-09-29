@@ -4,15 +4,15 @@ services:
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: shotgun
-      POSTGRES_PASSWORD: shotgun
-      POSTGRES_DB: shotgun
+      POSTGRES_USER: ${POSTGRES_USER:-shotgun}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shotgun}
+      POSTGRES_DB: ${POSTGRES_DB:-shotgun}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U shotgun"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
       interval: 2s
       timeout: 3s
       retries: 15
@@ -28,7 +28,7 @@ services:
     entrypoint:
       - migrate
       - -path=/migrations
-      - -database=postgres://shotgun:shotgun@db:5432/shotgun?sslmode=disable
+      - -database=postgres://${POSTGRES_USER:-shotgun}:${POSTGRES_PASSWORD:-shotgun}@db:5432/${POSTGRES_DB:-shotgun}?sslmode=disable
     command: ["up"]
 
   # The Go API. Starts after the migrations succeeded
