@@ -29,8 +29,9 @@ Errors are JSON: `{"message": "..."}`.
 | `GET`    | `/auth/me`       | yes  | `200 {user}`, `401` without a valid session                 |
 | `PATCH`  | `/auth/me`       | yes  | `{name?, email?, phone?}`, `200 {user}`, `409` duplicate email |
 | `DELETE` | `/auth/me`       | yes  | deletes the account and its sessions, `204`                 |
+| `POST`   | `/auth/password` | yes  | `{currentPassword, newPassword}`, `204`, `401` wrong current password; ends all other sessions |
 
-`user` is `{id, name, email, phone, joinedAt}`. Settings (`DATABASE_URL`,
+`user` is `{id, name, email, phone, joinedAt}`. `phone` is E.164 (`+38640123456`) or `null`; on `PATCH` an empty string clears it. Settings (`DATABASE_URL`,
 `SESSION_TTL_HOURS`, `COOKIE_SECURE`, `ALLOWED_ORIGIN`) are in `.env.example`.
 Set `COOKIE_SECURE=true` when serving over HTTPS.
 

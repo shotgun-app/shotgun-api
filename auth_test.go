@@ -213,3 +213,57 @@ func TestProtectedRoutesNeedCookie(t *testing.T) {
 		}
 	}
 }
+
+func TestChangePassword(t *testing.T) {
+	e := newTestEnv(t)
+	email := uniqueEmail()
+	e.cleanup(t, email)
+	first := sessionCookie(e.do("POST", "/auth/register", registerBody(email), nil))
+	other := sessionCookie(e.do("POST", "/auth/login", fmt.Sprintf(`{"email":%q,"password":"password123"}`, email), nil))
+
+	if rec := e.do("POST", "/auth/password", `{"currentPassword":"wrong-one","newPassword":"newpassword1"}`, first); rec.Code != http.StatusUnauthorized {
+		t.Errorf("wrong current password = %d, want 401", rec.Code)
+	}
+	if rec := e.do("POST", "/auth/password", `{"currentPassword":"password123","newPassword":"short"}`, first); rec.Code != http.StatusBadRequest {
+		t.Errorf("short new password = %d, want 400", rec.Code)
+	}
+	if rec := e.do("POST", "/auth/password", `{"currentPassword":"password123","newPassword":"newpassword1"}`, first); rec.Code != http.StatusNoContent {
+		t.Fatalf("change = %d", rec.Code)
+	}
+
+	if rec := e.do("GET", "/auth/me", "", first); rec.Code != http.StatusOK {
+		t.Errorf("current session after change = %d, want 200", rec.Code)
+	}
+	if rec := e.do("GET", "/auth/me", "", other); rec.Code != http.StatusUnauthorized {
+		t.Errorf("other session after change = %d, want 401", rec.Code)
+	}
+	old := fmt.Sprintf(`{"email":%q,"password":"password123"}`, email)
+	if rec := e.do("POST", "/auth/login", old, nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("login with old password = %d, want 401", rec.Code)
+	}
+	fresh := fmt.Sprintf(`{"email":%q,"password":"newpassword1"}`, email)
+	if rec := e.do("POST", "/auth/login", fresh, nil); rec.Code != http.StatusOK {
+		t.Errorf("login with new password = %d, want 200", rec.Code)
+	}
+}
+
+func TestPhone(t *testing.T) {
+	e := newTestEnv(t)
+	email := uniqueEmail()
+	e.cleanup(t, email)
+	cookie := sessionCookie(e.do("POST", "/auth/register", registerBody(email), nil))
+
+	if rec := e.do("PATCH", "/auth/me", `{"phone":"040 123 456"}`, cookie); rec.Code != http.StatusBadRequest {
+		t.Errorf("phone without country code = %d, want 400", rec.Code)
+	}
+	rec := e.do("PATCH", "/auth/me", `{"phone":"+386 40 123 456"}`, cookie)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"phone":"+38640123456"`) {
+		t.Fatalf("set phone = %d %s", rec.Code, rec.Body)
+	}
+	if rec = e.do("PATCH", "/auth/me", `{"name":"Only Name"}`, cookie); !strings.Contains(rec.Body.String(), `"phone":"+38640123456"`) {
+		t.Errorf("phone must survive an update that omits it: %s", rec.Body)
+	}
+	if rec = e.do("PATCH", "/auth/me", `{"phone":""}`, cookie); !strings.Contains(rec.Body.String(), `"phone":null`) {
+		t.Errorf("empty phone must clear it: %s", rec.Body)
+	}
+}

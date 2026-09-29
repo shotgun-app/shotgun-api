@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/mail"
+	"regexp"
 	"strings"
 	"time"
 
@@ -41,6 +42,13 @@ func scanUser(row pgx.Row) (*User, error) {
 	return &u, nil
 }
 
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 func fail(c *gin.Context, status int, msg string) {
 	c.AbortWithStatusJSON(status, gin.H{"message": msg})
 }
@@ -61,6 +69,18 @@ type registerRequest struct {
 func validateEmail(email string) bool {
 	addr, err := mail.ParseAddress(email)
 	return err == nil && addr.Address == email && len(email) <= 320
+}
+
+var phoneRE = regexp.MustCompile(`^\+[1-9][0-9]{6,14}$`)
+
+// normalizePhone strips spaces and dashes and requires E.164 (+ country code and digits).
+// An empty value means "no phone" and returns ("", true)
+func normalizePhone(raw string) (string, bool) {
+	p := strings.NewReplacer(" ", "", "-", "", "(", "", ")", "").Replace(strings.TrimSpace(raw))
+	if p == "" {
+		return "", true
+	}
+	return p, phoneRE.MatchString(p)
 }
 
 func validName(name string) bool { return name != "" && len(name) <= 100 }
@@ -86,6 +106,14 @@ func (a *Auth) Register(c *gin.Context) {
 	case len(req.Password) > 72: // bcrypt ignores everything past 72 bytes
 		fail(c, http.StatusBadRequest, "Password must be at most 72 characters.")
 		return
+	}
+	if req.Phone != nil {
+		phone, ok := normalizePhone(*req.Phone)
+		if !ok {
+			fail(c, http.StatusBadRequest, "Enter a valid phone number with country code.")
+			return
+		}
+		req.Phone = nilIfEmpty(phone)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -198,12 +226,24 @@ func (a *Auth) UpdateMe(c *gin.Context) {
 		}
 	}
 
-	// COALESCE keeps the current value for fields that were not sent
+	// An empty phone clears it; a missing one leaves it alone
+	setPhone := req.Phone != nil
+	var phone *string
+	if setPhone {
+		p, ok := normalizePhone(*req.Phone)
+		if !ok {
+			fail(c, http.StatusBadRequest, "Enter a valid phone number with country code.")
+			return
+		}
+		phone = nilIfEmpty(p)
+	}
+
+	// COALESCE keeps the current value for name/email that were not sent
 	user, err := scanUser(a.DB.QueryRow(c.Request.Context(),
 		`UPDATE users SET name = COALESCE($2, name), email = COALESCE($3, email),
-		 phone = COALESCE($4, phone), updated_at = now()
+		 phone = CASE WHEN $5 THEN $4 ELSE phone END, updated_at = now()
 		 WHERE id = $1 RETURNING `+userColumns,
-		CurrentUser(c).ID, req.Name, req.Email, req.Phone))
+		CurrentUser(c).ID, req.Name, req.Email, phone, setPhone))
 	if err != nil {
 		if isUniqueViolation(err) {
 			fail(c, http.StatusConflict, "An account with that email already exists.")
@@ -222,5 +262,66 @@ func (a *Auth) DeleteMe(c *gin.Context) {
 		return
 	}
 	a.clearCookie(c)
+	c.Status(http.StatusNoContent)
+}
+
+type passwordRequest struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
+// ChangePassword checks the current password, then ends every other session so a stolen
+// session cannot outlive the change. The session making the request stays signed in
+func (a *Auth) ChangePassword(c *gin.Context) {
+	var req passwordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, "Invalid request body.")
+		return
+	}
+	switch {
+	case len(req.NewPassword) < 8:
+		fail(c, http.StatusBadRequest, "Password must be at least 8 characters.")
+		return
+	case len(req.NewPassword) > 72:
+		fail(c, http.StatusBadRequest, "Password must be at most 72 characters.")
+		return
+	}
+
+	ctx := c.Request.Context()
+	user := CurrentUser(c)
+	var hash string
+	if err := a.DB.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, user.ID).Scan(&hash); err != nil {
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.CurrentPassword)) != nil {
+		fail(c, http.StatusUnauthorized, "Current password is incorrect.")
+		return
+	}
+	newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
+
+	token, _ := c.Cookie(SessionCookie)
+	tx, err := a.DB.Begin(ctx)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1`, user.ID, string(newHash)); err != nil {
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1 AND token <> $2`, user.ID, token); err != nil {
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
 	c.Status(http.StatusNoContent)
 }
