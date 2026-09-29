@@ -10,7 +10,7 @@ Go 1.26 + Gin, PostgreSQL 17, golang-migrate, Docker Compose. Go does not need t
 
 - `main.go` - entry point. `setupRouter` registers middleware and routes and is used by tests
 - `config/` - settings read from environment variables, with defaults for local development
-- `handlers/` - HTTP handlers, one file per resource
+- `handlers/` - HTTP handlers, one file per resource (`auth.go`, `session.go` for the session cookie and `RequireAuth`)
 - `middleware/` - Gin middleware (CORS)
 - `migrations/` - SQL migrations, applied by the `migrate` service on start
 
@@ -33,7 +33,8 @@ Run the tests before finishing a change.
 ## Conventions
 
 - Configuration comes from environment variables via `config.Load()`. New settings also go in `.env.example` and `docker-compose.yml`
-- Tests use `net/http/httptest` against the router, with no running server
+- Tests use `net/http/httptest` against the router, with no running server. Auth integration tests (`auth_test.go`) use the real database and skip unless `TEST_DATABASE_URL` is set (the compose `test` service sets it)
+- Handlers reply with `{"message": "..."}` on errors; the web app reads that field
 - Comments explain why, not what. Keep them short
 
 ## Commits

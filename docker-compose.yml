@@ -43,6 +43,9 @@ services:
     environment:
       PORT: "8080"
       ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-http://localhost:5173}
+      DATABASE_URL: postgres://${POSTGRES_USER:-shotgun}:${POSTGRES_PASSWORD:-shotgun}@db:5432/${POSTGRES_DB:-shotgun}?sslmode=disable
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-720}
 
   # Not started by "up". Run with: docker compose run --rm --build test
   test:
@@ -50,6 +53,12 @@ services:
       context: .
       target: builder
     command: sh -c "go vet ./... && go test ./..."
+    # Integration tests use the real database and are skipped without TEST_DATABASE_URL
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      TEST_DATABASE_URL: postgres://${POSTGRES_USER:-shotgun}:${POSTGRES_PASSWORD:-shotgun}@db:5432/${POSTGRES_DB:-shotgun}?sslmode=disable
     profiles: ["test"]
 
 volumes:
