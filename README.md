@@ -31,8 +31,8 @@ Errors are JSON: `{"message": "..."}`.
 | `DELETE` | `/auth/me`       | yes  | deletes the account and its sessions, `204`                 |
 | `POST`   | `/auth/password` | yes  | `{currentPassword, newPassword}`, `204`, `401` wrong current password; ends all other sessions |
 
-`user` is `{id, name, email, phone, joinedAt}`. `phone` is E.164 (`+38640123456`) and required on register; `PATCH` cannot empty it. Accounts created before this rule may still have `null`. Settings (`DATABASE_URL`,
-`SESSION_TTL_HOURS`, `COOKIE_SECURE`, `ALLOWED_ORIGIN`) are in `.env.example`.
+`user` is `{id, name, email, phone, joinedAt}`. `phone` is E.164 (`+38640123456`) and required on register; `PATCH` cannot empty it. Accounts created before this rule may still have `null`. Settings (`SESSION_TTL_HOURS`,
+`COOKIE_SECURE`, `ALLOWED_ORIGIN`) are in `.env.example`.
 Set `COOKIE_SECURE=true` when serving over HTTPS.
 
 ## Tech stack
