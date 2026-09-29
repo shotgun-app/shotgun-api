@@ -49,8 +49,10 @@ CREATE TABLE bookings (
     seats        integer        NOT NULL DEFAULT 1 CHECK (seats > 0),
     status       booking_status NOT NULL DEFAULT 'confirmed',
     created_at   timestamptz    NOT NULL DEFAULT now(),
-    updated_at   timestamptz,
-    UNIQUE (ride_id, passenger_id)
+    updated_at   timestamptz
 );
+
+-- One active booking per passenger per ride. Cancelled bookings don't count, so the passenger can book again
+CREATE UNIQUE INDEX bookings_active_idx ON bookings (ride_id, passenger_id) WHERE status = 'confirmed';
 
 CREATE INDEX bookings_passenger_id_idx ON bookings (passenger_id);
