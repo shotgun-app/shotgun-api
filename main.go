@@ -7,6 +7,7 @@ import (
 
 	"shotgun-api/config"
 	"shotgun-api/handlers"
+	"shotgun-api/middleware"
 )
 
 func main() {
@@ -22,6 +23,7 @@ func setupRouter(cfg *config.Config) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
+	r.Use(middleware.CORS(cfg.AllowedOrigin))
 
 	r.GET("/ping", handlers.Ping)
 
