@@ -1,0 +1,7 @@
+.git
+.env
+.DS_Store
+.idea
+.vscode
+README.md
+AGENTS.md

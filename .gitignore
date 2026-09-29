@@ -1,0 +1,13 @@
+# Go build output
+server
+*.exe
+*.test
+*.out
+
+# Local config
+.env
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/

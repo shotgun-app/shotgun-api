@@ -1,0 +1,56 @@
+# Start everything with: docker compose up -d --build
+services:
+  # PostgreSQL. Data is kept in the db_data volume
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shotgun}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shotgun}
+      POSTGRES_DB: ${POSTGRES_DB:-shotgun}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    # Check over TCP: on first start Postgres runs a temporary socket-only server that must not count as ready
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # Applies the SQL files in ./migrations, then exits
+  migrate:
+    image: migrate/migrate
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    entrypoint:
+      - migrate
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:-shotgun}:${POSTGRES_PASSWORD:-shotgun}@db:5432/${POSTGRES_DB:-shotgun}?sslmode=disable
+    command: ["up"]
+
+  # The Go API. Starts after the migrations succeeded
+  api:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${API_PORT:-8080}:8080"
+    environment:
+      PORT: "8080"
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-http://localhost:5173}
+
+  # Not started by "up". Run with: docker compose run --rm --build test
+  test:
+    build:
+      context: .
+      target: builder
+    command: sh -c "go vet ./... && go test ./..."
+    profiles: ["test"]
+
+volumes:
+  db_data:
