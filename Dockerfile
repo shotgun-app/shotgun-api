@@ -7,7 +7,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o server .
 
 # Run stage: only the compiled binary
-FROM alpine:3.20
+FROM alpine:3.24
 WORKDIR /app
 COPY --from=builder /app/server .
 EXPOSE 8080
