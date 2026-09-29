@@ -42,11 +42,11 @@ func scanUser(row pgx.Row) (*User, error) {
 	return &u, nil
 }
 
-func nilIfEmpty(s string) *string {
-	if s == "" {
-		return nil
+func derefString(s *string) string {
+	if s == nil {
+		return ""
 	}
-	return &s
+	return *s
 }
 
 func fail(c *gin.Context, status int, msg string) {
@@ -74,7 +74,7 @@ func validateEmail(email string) bool {
 var phoneRE = regexp.MustCompile(`^\+[1-9][0-9]{6,14}$`)
 
 // normalizePhone strips spaces and dashes and requires E.164 (+ country code and digits).
-// An empty value means "no phone" and returns ("", true)
+// An empty value returns ("", true); callers decide whether that is allowed
 func normalizePhone(raw string) (string, bool) {
 	p := strings.NewReplacer(" ", "", "-", "", "(", "", ")", "").Replace(strings.TrimSpace(raw))
 	if p == "" {
@@ -107,14 +107,17 @@ func (a *Auth) Register(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "Password must be at most 72 characters.")
 		return
 	}
-	if req.Phone != nil {
-		phone, ok := normalizePhone(*req.Phone)
-		if !ok {
-			fail(c, http.StatusBadRequest, "Enter a valid phone number with country code.")
-			return
-		}
-		req.Phone = nilIfEmpty(phone)
+	// Drivers and passengers contact each other, so every account needs a number
+	phone, ok := normalizePhone(derefString(req.Phone))
+	if phone == "" {
+		fail(c, http.StatusBadRequest, "Phone number is required.")
+		return
 	}
+	if !ok {
+		fail(c, http.StatusBadRequest, "Enter a valid phone number with country code.")
+		return
+	}
+	req.Phone = &phone
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -226,16 +229,20 @@ func (a *Auth) UpdateMe(c *gin.Context) {
 		}
 	}
 
-	// An empty phone clears it; a missing one leaves it alone
+	// A missing phone leaves it alone, but it can never be emptied
 	setPhone := req.Phone != nil
 	var phone *string
 	if setPhone {
 		p, ok := normalizePhone(*req.Phone)
+		if p == "" {
+			fail(c, http.StatusBadRequest, "Phone number is required.")
+			return
+		}
 		if !ok {
 			fail(c, http.StatusBadRequest, "Enter a valid phone number with country code.")
 			return
 		}
-		phone = nilIfEmpty(p)
+		phone = &p
 	}
 
 	// COALESCE keeps the current value for name/email that were not sent

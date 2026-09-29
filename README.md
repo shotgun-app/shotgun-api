@@ -23,7 +23,7 @@ Errors are JSON: `{"message": "..."}`.
 
 | Method   | Path             | Auth | Notes                                                       |
 | -------- | ---------------- | ---- | ----------------------------------------------------------- |
-| `POST`   | `/auth/register` | no   | `{name, email, password, phone?}`, `201 {user}`, `409` duplicate email |
+| `POST`   | `/auth/register` | no   | `{name, email, password, phone}`, `201 {user}`, `409` duplicate email |
 | `POST`   | `/auth/login`    | no   | `{email, password}`, `200 {user}`, `401` wrong credentials  |
 | `POST`   | `/auth/logout`   | no   | `204`, always clears the cookie                             |
 | `GET`    | `/auth/me`       | yes  | `200 {user}`, `401` without a valid session                 |
@@ -31,7 +31,7 @@ Errors are JSON: `{"message": "..."}`.
 | `DELETE` | `/auth/me`       | yes  | deletes the account and its sessions, `204`                 |
 | `POST`   | `/auth/password` | yes  | `{currentPassword, newPassword}`, `204`, `401` wrong current password; ends all other sessions |
 
-`user` is `{id, name, email, phone, joinedAt}`. `phone` is E.164 (`+38640123456`) or `null`; on `PATCH` an empty string clears it. Settings (`DATABASE_URL`,
+`user` is `{id, name, email, phone, joinedAt}`. `phone` is E.164 (`+38640123456`) and required on register; `PATCH` cannot empty it. Accounts created before this rule may still have `null`. Settings (`DATABASE_URL`,
 `SESSION_TTL_HOURS`, `COOKIE_SECURE`, `ALLOWED_ORIGIN`) are in `.env.example`.
 Set `COOKIE_SECURE=true` when serving over HTTPS.
 

@@ -61,7 +61,7 @@ func sessionCookie(rec *httptest.ResponseRecorder) *http.Cookie {
 func uniqueEmail() string { return fmt.Sprintf("test-%d@shotgun.test", time.Now().UnixNano()) }
 
 func registerBody(email string) string {
-	return fmt.Sprintf(`{"name":"Test User","email":%q,"password":"password123"}`, email)
+	return fmt.Sprintf(`{"name":"Test User","email":%q,"password":"password123","phone":"+386 40 123 456"}`, email)
 }
 
 func (e *testEnv) cleanup(t *testing.T, email string) {
@@ -122,9 +122,12 @@ func TestRegisterValidationAndDuplicate(t *testing.T) {
 	e.cleanup(t, email)
 
 	bad := []string{
-		`{"name":"","email":"a@b.co","password":"password123"}`,
-		`{"name":"A","email":"nope","password":"password123"}`,
-		`{"name":"A","email":"a@b.co","password":"short"}`,
+		`{"name":"","email":"a@b.co","password":"password123","phone":"+38640123456"}`,
+		`{"name":"A","email":"nope","password":"password123","phone":"+38640123456"}`,
+		`{"name":"A","email":"a@b.co","password":"short","phone":"+38640123456"}`,
+		`{"name":"A","email":"a@b.co","password":"password123"}`,
+		`{"name":"A","email":"a@b.co","password":"password123","phone":""}`,
+		`{"name":"A","email":"a@b.co","password":"password123","phone":"040 123 456"}`,
 		`not json`,
 	}
 	for _, b := range bad {
@@ -263,7 +266,7 @@ func TestPhone(t *testing.T) {
 	if rec = e.do("PATCH", "/auth/me", `{"name":"Only Name"}`, cookie); !strings.Contains(rec.Body.String(), `"phone":"+38640123456"`) {
 		t.Errorf("phone must survive an update that omits it: %s", rec.Body)
 	}
-	if rec = e.do("PATCH", "/auth/me", `{"phone":""}`, cookie); !strings.Contains(rec.Body.String(), `"phone":null`) {
-		t.Errorf("empty phone must clear it: %s", rec.Body)
+	if rec = e.do("PATCH", "/auth/me", `{"phone":""}`, cookie); rec.Code != http.StatusBadRequest {
+		t.Errorf("emptying the phone = %d, want 400", rec.Code)
 	}
 }
