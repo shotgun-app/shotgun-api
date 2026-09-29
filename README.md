@@ -25,6 +25,8 @@ docker compose up -d --build
 
 This starts Postgres, applies the migrations and starts the API. Open http://localhost:8080/ping. It shows `pong`.
 
+If you get `address already in use` for port 5432, a local Postgres is already running on it. Copy `.env.example` to `.env` and set `DB_PORT=5433` (or any free port).
+
 ### Commands
 
 - After changing code: run the start command again. It rebuilds the API.
