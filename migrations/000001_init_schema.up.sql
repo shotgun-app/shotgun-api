@@ -3,12 +3,15 @@ CREATE TYPE booking_status AS ENUM ('confirmed', 'cancelled');
 CREATE TABLE users (
     id            uuid         PRIMARY KEY DEFAULT gen_random_uuid(),
     name          varchar(100) NOT NULL,
-    email         varchar(320) NOT NULL UNIQUE,
+    email         varchar(320) NOT NULL,
     password_hash varchar(255) NOT NULL,
     phone         varchar(20),
     created_at    timestamptz  NOT NULL DEFAULT now(),
     updated_at    timestamptz
 );
+
+-- Emails are unique regardless of case (Ana@x.com and ana@x.com are the same user)
+CREATE UNIQUE INDEX users_email_lower_idx ON users (lower(email));
 
 CREATE TABLE sessions (
     id         uuid         PRIMARY KEY DEFAULT gen_random_uuid(),
