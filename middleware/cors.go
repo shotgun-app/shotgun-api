@@ -12,7 +12,7 @@ func CORS(allowedOrigin string) gin.HandlerFunc {
 		c.Header("Access-Control-Allow-Origin", allowedOrigin)
 		c.Header("Access-Control-Allow-Credentials", "true")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, QUERY, OPTIONS")
 
 		// Browsers send an OPTIONS "preflight" request first, answer it without running the handler
 		if c.Request.Method == http.MethodOptions {

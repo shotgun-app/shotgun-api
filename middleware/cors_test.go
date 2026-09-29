@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -38,7 +39,10 @@ func TestCORSPreflight(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusNoContent)
 	}
-	if rec.Header().Get("Access-Control-Allow-Methods") == "" {
-		t.Error("Access-Control-Allow-Methods is empty")
+	methods := rec.Header().Get("Access-Control-Allow-Methods")
+	for _, m := range []string{"PATCH", "QUERY"} {
+		if !strings.Contains(methods, m) {
+			t.Errorf("Access-Control-Allow-Methods = %q, missing %s", methods, m)
+		}
 	}
 }
