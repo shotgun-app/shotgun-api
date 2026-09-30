@@ -1,0 +1,73 @@
+# Runs on every pull request and on main. The job names are the required checks in the main ruleset
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A new push to the same branch cancels the run that is still going
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not formatted. Run gofmt -w . and commit the result:"
+            echo "$unformatted"
+            gofmt -d .
+            exit 1
+          fi
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    # Without TEST_DATABASE_URL the integration tests would be skipped, not failed
+    env:
+      TEST_DATABASE_URL: postgres://shotgun:shotgun@localhost:5432/shotgun?sslmode=disable
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: shotgun
+          POSTGRES_PASSWORD: shotgun
+          POSTGRES_DB: shotgun
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U shotgun -d shotgun"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Apply migrations
+        run: docker run --rm --network host -v "$PWD/migrations:/migrations" migrate/migrate -path=/migrations -database "$TEST_DATABASE_URL" up
+      - run: go test -race ./...
