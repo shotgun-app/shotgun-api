@@ -74,7 +74,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on `m
 | --- | --- |
 | `Format` | `gofmt -l .` must list no files |
 | `Lint` | `go vet ./...` |
-| `Unit tests` | `go test -race ./...` against a Postgres 17 service with the migrations applied |
+| `Tests` | `go test -race ./...` against a Postgres 17 service with the migrations applied |
 
 If `Format` fails, run the format command above and commit the result.
 
