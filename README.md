@@ -60,10 +60,23 @@ If you get `address already in use` for port 5432, a local Postgres is already r
 - Stop: `docker compose down`
 - Wipe all data: `docker compose down -v`
 - Run tests: `docker compose run --rm --build test` (includes integration tests against the database)
+- Format code: `docker run --rm -v "$PWD":/app -w /app golang:1.26-alpine gofmt -w .` (or `gofmt -w .` with Go installed)
 - New migration: add `migrations/000002_name.up.sql` and `migrations/000002_name.down.sql`, then run the start command again.
 - Undo the last migration: `docker compose run --rm migrate down 1`
 
 Each migration has two files so it can be undone: `up.sql` applies the change and `down.sql` reverts it exactly.
+
+## CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on `main`. A pull request can only be merged into `main` when all of these checks pass:
+
+| Check | Runs |
+| --- | --- |
+| `Format` | `gofmt -l .` must list no files |
+| `Lint` | `go vet ./...` |
+| `Tests` | `go test -race ./...` against a Postgres 17 service with the migrations applied |
+
+If `Format` fails, run the format command above and commit the result.
 
 ## Related repositories
 

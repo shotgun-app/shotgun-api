@@ -18,10 +18,11 @@ Go 1.26 + Gin, PostgreSQL 17, golang-migrate, Docker Compose. Go does not need t
 
 - Start or rebuild: `docker compose up -d --build`
 - Tests and vet: `docker compose run --rm --build test`
+- Format: `docker run --rm -v "$PWD":/app -w /app golang:1.26-alpine gofmt -w .`
 - Database shell: `docker compose exec db psql -U shotgun`
 - Wipe the database: `docker compose down -v`
 
-Run the tests before finishing a change.
+Run the tests and format the code before finishing a change. CI (`.github/workflows/ci.yml`) runs the `Format`, `Lint` and `Tests` checks on every pull request, and `main` only accepts pull requests where all three pass.
 
 ## Migrations
 
