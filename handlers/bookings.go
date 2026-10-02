@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -34,16 +35,13 @@ type BookingWithTrip struct {
 
 type bookingRequest struct {
 	TripID string `json:"tripId"`
-	RideID string `json:"rideId"`
 	Seats  int    `json:"seats"`
 }
 
-func (r *bookingRequest) getTripID() string {
-	if r.TripID != "" {
-		return r.TripID
-	}
-	return r.RideID
-}
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// isUUID guards queries on uuid columns: Postgres rejects malformed ids with an error, which would surface as a 500
+func isUUID(s string) bool { return uuidPattern.MatchString(s) }
 
 // ListMine returns confirmed bookings for the authenticated passenger, soonest-departing first.
 func (bkg *Bookings) ListMine(c *gin.Context) {
@@ -104,9 +102,13 @@ func (bkg *Bookings) Create(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "You must book at least 1 seat.")
 		return
 	}
-	tripID := req.getTripID()
+	tripID := req.TripID
 	if tripID == "" {
 		fail(c, http.StatusBadRequest, "Trip ID is required.")
+		return
+	}
+	if !isUUID(tripID) {
+		fail(c, http.StatusNotFound, "Trip not found.")
 		return
 	}
 
@@ -122,9 +124,10 @@ func (bkg *Bookings) Create(c *gin.Context) {
 	// Check ride existence and capacity with row lock
 	var driverID string
 	var seatsTotal int
+	var departureAt time.Time
 	err = tx.QueryRow(c.Request.Context(),
-		`SELECT driver_id, seats_total FROM rides WHERE id = $1 FOR UPDATE`, tripID,
-	).Scan(&driverID, &seatsTotal)
+		`SELECT driver_id, seats_total, departure_at FROM rides WHERE id = $1 FOR UPDATE`, tripID,
+	).Scan(&driverID, &seatsTotal, &departureAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			fail(c, http.StatusNotFound, "Trip not found.")
@@ -136,6 +139,10 @@ func (bkg *Bookings) Create(c *gin.Context) {
 
 	if driverID == user.ID {
 		fail(c, http.StatusBadRequest, "You cannot book your own ride.")
+		return
+	}
+	if !departureAt.After(time.Now()) {
+		fail(c, http.StatusConflict, "This trip has already departed.")
 		return
 	}
 
@@ -212,6 +219,10 @@ type updateBookingRequest struct {
 // Update changes the number of seats on an existing confirmed booking.
 func (bkg *Bookings) Update(c *gin.Context) {
 	id := c.Param("id")
+	if !isUUID(id) {
+		fail(c, http.StatusNotFound, "Booking not found.")
+		return
+	}
 	var req updateBookingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		fail(c, http.StatusBadRequest, "Invalid request body.")
@@ -303,6 +314,10 @@ func (bkg *Bookings) Update(c *gin.Context) {
 // Cancel sets a confirmed booking's status to 'cancelled', returning seats to the ride.
 func (bkg *Bookings) Cancel(c *gin.Context) {
 	id := c.Param("id")
+	if !isUUID(id) {
+		fail(c, http.StatusNotFound, "Booking not found.")
+		return
+	}
 	user := CurrentUser(c)
 
 	tag, err := bkg.DB.Exec(c.Request.Context(),

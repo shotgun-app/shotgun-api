@@ -35,16 +35,11 @@ type Ride struct {
 	CreatedAt          time.Time `json:"createdAt"`
 }
 
-// DriverPublic is the public profile of a driver attached to a trip.
+// DriverPublic is what passengers may see of a driver. Contact details stay private
 type DriverPublic struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Email       string    `json:"email"`
-	Phone       *string   `json:"phone"`
-	JoinedAt    time.Time `json:"joinedAt"`
-	Rating      float64   `json:"rating"`
-	RatingCount int       `json:"ratingCount"`
-	CO2SavedKg  float64   `json:"co2SavedKg"`
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	JoinedAt time.Time `json:"joinedAt"`
 }
 
 // TripWithDriver represents a ride along with the driver profile.
@@ -109,16 +104,29 @@ func (ri *Rides) Search(c *gin.Context) {
 	date := strings.TrimSpace(c.Query("date"))
 	timeParam := strings.TrimSpace(c.Query("time"))
 
+	if date != "" {
+		if _, err := time.Parse("2006-01-02", date); err != nil {
+			fail(c, http.StatusBadRequest, "Date must be YYYY-MM-DD.")
+			return
+		}
+	}
+	if timeParam != "" {
+		if _, err := time.Parse("15:04", timeParam); err != nil {
+			fail(c, http.StatusBadRequest, "Time must be HH:MM.")
+			return
+		}
+	}
+
 	query := `
 		SELECT
 			r.id, r.driver_id, r.origin_city, r.origin_country, r.destination_city, r.destination_country,
 			r.departure_at, r.seats_total,
 			COALESCE((SELECT SUM(seats) FROM bookings WHERE ride_id = r.id AND status = 'confirmed'), 0)::int AS seats_booked,
 			r.price_per_seat, r.currency, r.notes, r.created_at,
-			u.id, u.name, u.email, u.phone, u.created_at
+			u.id, u.name, u.created_at
 		FROM rides r
 		JOIN users u ON r.driver_id = u.id
-		WHERE 1=1
+		WHERE r.departure_at > now()
 	`
 	var args []any
 	argIdx := 1
@@ -139,7 +147,8 @@ func (ri *Rides) Search(c *gin.Context) {
 		argIdx++
 	}
 	if timeParam != "" {
-		query += fmt.Sprintf(" AND TO_CHAR(r.departure_at, 'HH24:MI') = $%d", argIdx)
+		// "Preferred time": show rides leaving at or after it
+		query += fmt.Sprintf(" AND r.departure_at::time >= $%d::time", argIdx)
 		args = append(args, timeParam)
 		argIdx++
 	}
@@ -164,15 +173,12 @@ func (ri *Rides) Search(c *gin.Context) {
 			&t.SeatsTotal, &t.SeatsBooked,
 			&t.PricePerSeat, &t.Currency, &t.Notes,
 			&t.CreatedAt,
-			&t.Driver.ID, &t.Driver.Name, &t.Driver.Email, &t.Driver.Phone, &t.Driver.JoinedAt,
+			&t.Driver.ID, &t.Driver.Name, &t.Driver.JoinedAt,
 		)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, "Something went wrong.")
 			return
 		}
-		t.Driver.Rating = 5.0
-		t.Driver.RatingCount = 1
-		t.Driver.CO2SavedKg = 0.0
 		list = append(list, &t)
 	}
 	if err := rows.Err(); err != nil {
@@ -275,18 +281,47 @@ func (ri *Rides) Update(c *gin.Context) {
 	notes := strings.TrimSpace(req.Notes)
 
 	user := CurrentUser(c)
+	if !isUUID(id) {
+		fail(c, http.StatusNotFound, "Ride not found.")
+		return
+	}
+
+	// Lock the ride so a concurrent booking can't slip in between the capacity check and the update
+	tx, err := ri.DB.Begin(c.Request.Context())
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
+	defer tx.Rollback(c.Request.Context())
+
+	var lockedID string
+	err = tx.QueryRow(c.Request.Context(),
+		`SELECT id FROM rides WHERE id = $1 AND driver_id = $2 FOR UPDATE`, id, user.ID,
+	).Scan(&lockedID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			fail(c, http.StatusNotFound, "Ride not found.")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
 
 	var seatsBooked int
-	err := ri.DB.QueryRow(c.Request.Context(),
+	err = tx.QueryRow(c.Request.Context(),
 		`SELECT COALESCE(SUM(seats), 0)::int FROM bookings WHERE ride_id = $1 AND status = 'confirmed'`,
 		id,
 	).Scan(&seatsBooked)
-	if err == nil && req.SeatsTotal < seatsBooked {
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
+	if req.SeatsTotal < seatsBooked {
 		fail(c, http.StatusBadRequest, fmt.Sprintf("Total seats cannot be fewer than already booked seats (%d).", seatsBooked))
 		return
 	}
 
-	ride, err := scanRide(ri.DB.QueryRow(c.Request.Context(),
+	ride, err := scanRide(tx.QueryRow(c.Request.Context(),
 		`UPDATE rides SET
 		   origin_city = $3, origin_country = $4,
 		   destination_city = $5, destination_country = $6,
@@ -307,6 +342,10 @@ func (ri *Rides) Update(c *gin.Context) {
 			fail(c, http.StatusNotFound, "Ride not found.")
 			return
 		}
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
+	if err := tx.Commit(c.Request.Context()); err != nil {
 		fail(c, http.StatusInternalServerError, "Something went wrong.")
 		return
 	}

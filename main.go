@@ -59,16 +59,7 @@ func setupRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
 	api.GET("/bookings/mine", bookings.ListMine)
 	api.POST("/bookings", bookings.Create)
 	api.PATCH("/bookings/:id", bookings.Update)
-	api.PUT("/bookings/:id", bookings.Update)
 	api.DELETE("/bookings/:id", bookings.Cancel)
-
-	authed := r.Group("", auth.RequireAuth)
-	authed.GET("/trips", rides.Search)
-	authed.GET("/bookings/mine", bookings.ListMine)
-	authed.POST("/bookings", bookings.Create)
-	authed.PATCH("/bookings/:id", bookings.Update)
-	authed.PUT("/bookings/:id", bookings.Update)
-	authed.DELETE("/bookings/:id", bookings.Cancel)
 
 	return r
 }
