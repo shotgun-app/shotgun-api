@@ -54,4 +54,3 @@ func TestUnauthenticatedRoutes(t *testing.T) {
 		})
 	}
 }
-
