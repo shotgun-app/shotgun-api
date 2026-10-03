@@ -35,8 +35,8 @@ type Ride struct {
 	CreatedAt          time.Time `json:"createdAt"`
 }
 
-// DriverPublic is what passengers may see of a driver. Contact details stay private
-type DriverPublic struct {
+// PublicUser is what other users may see of a driver or passenger. Contact details stay private
+type PublicUser struct {
 	ID       string    `json:"id"`
 	Name     string    `json:"name"`
 	JoinedAt time.Time `json:"joinedAt"`
@@ -45,7 +45,7 @@ type DriverPublic struct {
 // TripWithDriver represents a ride along with the driver profile.
 type TripWithDriver struct {
 	Ride
-	Driver DriverPublic `json:"driver"`
+	Driver PublicUser `json:"driver"`
 }
 
 const rideColumns = `id, driver_id, origin_city, origin_country, destination_city, destination_country,
