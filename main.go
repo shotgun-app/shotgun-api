@@ -48,8 +48,11 @@ func setupRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
 
 	rides := &handlers.Rides{DB: pool}
 	bookings := &handlers.Bookings{DB: pool}
+	users := &handlers.Users{DB: pool}
 
 	api := r.Group("/api", auth.RequireAuth)
+	api.GET("/users/:id", users.Get)
+
 	api.GET("/rides/mine", rides.ListMine)
 	api.POST("/rides", rides.Create)
 	api.PUT("/rides/:id", rides.Update)
