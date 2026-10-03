@@ -33,6 +33,8 @@ type Ride struct {
 	Currency           string    `json:"currency"`
 	Notes              string    `json:"notes"`
 	CreatedAt          time.Time `json:"createdAt"`
+	// Only served to the driver and passengers. Search leaves it nil, so omitzero drops it there
+	Passengers []PublicUser `json:"passengers,omitzero"`
 }
 
 // PublicUser is what other users may see of a driver or passenger. Contact details stay private
@@ -48,10 +50,18 @@ type TripWithDriver struct {
 	Driver PublicUser `json:"driver"`
 }
 
-const rideColumns = `id, driver_id, origin_city, origin_country, destination_city, destination_country,
+var rideColumns = `id, driver_id, origin_city, origin_country, destination_city, destination_country,
 	departure_at, seats_total,
 	COALESCE((SELECT SUM(seats) FROM bookings WHERE ride_id = rides.id AND status = 'confirmed'), 0)::int AS seats_booked,
-	price_per_seat, currency, notes, created_at`
+	price_per_seat, currency, notes, created_at,
+	` + passengersOf("rides.id")
+
+// passengersOf selects the confirmed passengers of a ride as a JSON array, in booking order
+func passengersOf(rideID string) string {
+	return `COALESCE((SELECT json_agg(json_build_object('id', pu.id, 'name', pu.name, 'joinedAt', pu.created_at) ORDER BY pb.created_at)
+		FROM bookings pb JOIN users pu ON pu.id = pb.passenger_id
+		WHERE pb.ride_id = ` + rideID + ` AND pb.status = 'confirmed'), '[]') AS passengers`
+}
 
 func scanRide(row pgx.Row) (*Ride, error) {
 	var r Ride
@@ -62,7 +72,7 @@ func scanRide(row pgx.Row) (*Ride, error) {
 		&r.DepartureAt,
 		&r.SeatsTotal, &r.SeatsBooked,
 		&r.PricePerSeat, &r.Currency, &r.Notes,
-		&r.CreatedAt,
+		&r.CreatedAt, &r.Passengers,
 	)
 	if err != nil {
 		return nil, err
