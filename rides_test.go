@@ -23,7 +23,7 @@ func (e *testEnv) registerUser(t *testing.T) (string, *http.Cookie) {
 
 func TestRidePassengers(t *testing.T) {
 	e := newTestEnv(t)
-	_, driver := e.registerUser(t)
+	driverID, driver := e.registerUser(t)
 	stayingID, staying := e.registerUser(t)
 	_, leaving := e.registerUser(t)
 
@@ -49,6 +49,17 @@ func TestRidePassengers(t *testing.T) {
 	_ = json.Unmarshal(e.do("GET", "/api/rides/mine", "", driver).Body.Bytes(), &mine)
 	if len(mine.Rides) != 1 || len(mine.Rides[0].Passengers) != 1 || mine.Rides[0].Passengers[0].ID != stayingID {
 		t.Errorf("rides/mine = %+v, want one ride with passenger %s", mine.Rides, stayingID)
+	}
+
+	var booked []struct {
+		Trip struct {
+			Driver     struct{ ID string }
+			Passengers []struct{ ID string }
+		}
+	}
+	_ = json.Unmarshal(e.do("GET", "/api/bookings/mine", "", staying).Body.Bytes(), &booked)
+	if len(booked) != 1 || booked[0].Trip.Driver.ID != driverID || len(booked[0].Trip.Passengers) != 1 {
+		t.Errorf("bookings/mine = %+v, want driver %s and one passenger", booked, driverID)
 	}
 
 	if rec := e.do("GET", "/api/trips?origin=Ljubljana", "", leaving); strings.Contains(rec.Body.String(), "passengers") {
