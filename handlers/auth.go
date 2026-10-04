@@ -15,12 +15,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"shotgun-api/config"
+	"shotgun-api/mailer"
 )
 
 // Auth groups the auth handlers and the dependencies they share
 type Auth struct {
-	DB  *pgxpool.Pool
-	Cfg *config.Config
+	DB     *pgxpool.Pool
+	Cfg    *config.Config
+	Mailer mailer.Mailer
 }
 
 // User is the JSON shape returned to the web app
