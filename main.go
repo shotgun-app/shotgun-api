@@ -52,6 +52,7 @@ func setupRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
 
 	rides := &handlers.Rides{DB: pool}
 	bookings := &handlers.Bookings{DB: pool}
+	reviews := &handlers.Reviews{DB: pool}
 	users := &handlers.Users{DB: pool}
 
 	api := r.Group("/api", auth.RequireAuth)
@@ -67,6 +68,8 @@ func setupRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
 	api.POST("/bookings", bookings.Create)
 	api.PATCH("/bookings/:id", bookings.Update)
 	api.DELETE("/bookings/:id", bookings.Cancel)
+
+	api.POST("/reviews", reviews.Create)
 
 	return r
 }
