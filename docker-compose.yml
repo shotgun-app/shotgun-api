@@ -42,7 +42,7 @@ services:
       - "${API_PORT:-8080}:8080"
     environment:
       PORT: "8080"
-      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-http://localhost:5173}
+      ALLOWED_ORIGIN: http://localhost:${FRONTEND_PORT:-5173}
       DATABASE_URL: postgres://${POSTGRES_USER:-shotgun}:${POSTGRES_PASSWORD:-shotgun}@db:5432/${POSTGRES_DB:-shotgun}?sslmode=disable
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-720}
