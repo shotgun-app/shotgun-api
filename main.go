@@ -9,6 +9,7 @@ import (
 
 	"shotgun-api/config"
 	"shotgun-api/handlers"
+	"shotgun-api/mailer"
 	"shotgun-api/middleware"
 )
 
@@ -36,7 +37,7 @@ func setupRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
 
 	r.GET("/ping", handlers.Ping)
 
-	auth := &handlers.Auth{DB: pool, Cfg: cfg}
+	auth := &handlers.Auth{DB: pool, Cfg: cfg, Mailer: mailer.LogMailer{}}
 	r.POST("/auth/register", auth.Register)
 	r.POST("/auth/login", auth.Login)
 	r.POST("/auth/logout", auth.Logout)
@@ -45,6 +46,9 @@ func setupRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
 	me.PATCH("", auth.UpdateMe)
 	me.DELETE("", auth.DeleteMe)
 	r.POST("/auth/password", auth.RequireAuth, auth.ChangePassword)
+	r.POST("/auth/forgot-password", auth.ForgotPassword)
+	r.GET("/auth/reset-password", auth.CheckResetToken)
+	r.POST("/auth/reset-password", auth.ResetPassword)
 
 	rides := &handlers.Rides{DB: pool}
 	bookings := &handlers.Bookings{DB: pool}

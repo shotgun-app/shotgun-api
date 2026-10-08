@@ -30,10 +30,20 @@ Errors are JSON: `{"message": "..."}`.
 | `PATCH`  | `/auth/me`       | yes  | `{name?, email?, phone?}`, `200 {user}`, `409` duplicate email |
 | `DELETE` | `/auth/me`       | yes  | deletes the account and its sessions, `204`                 |
 | `POST`   | `/auth/password` | yes  | `{currentPassword, newPassword}`, `204`, `401` wrong current password; ends all other sessions |
+| `POST`   | `/auth/forgot-password` | no | `{email}`, `204` whether or not the account exists, `400` malformed email |
+| `GET`    | `/auth/reset-password?token=` | no | `204` if the token is valid and unexpired, `400` otherwise; does not use it up |
+| `POST`   | `/auth/reset-password`  | no | `{token, password}`, `204`, `400` invalid or expired token; ends all of the user's sessions |
 
 `user` is `{id, name, email, phone, joinedAt}`. `phone` is E.164 (`+38640123456`) and required on register; `PATCH` cannot empty it. Accounts created before this rule may still have `null`. Settings (`SESSION_TTL_HOURS`,
 `COOKIE_SECURE`, `ALLOWED_ORIGIN`) are in `.env.example`.
 Set `COOKIE_SECURE=true` when serving over HTTPS.
+
+### Password reset
+
+`/auth/forgot-password` stores the SHA-256 of a random token in `password_resets` (valid 30 minutes, one live
+token per user) and renders the email in `mailer/templates/`. Sending is mocked: `mailer.LogMailer` logs the reset
+link (`docker compose logs api`) instead of delivering it. The link points to `APP_URL/reset-password?token=...`.
+To send real mail, add another `mailer.Mailer` implementation and use it in `setupRouter`.
 
 ## Tech stack
 
