@@ -28,9 +28,10 @@ type Review struct {
 }
 
 type reviewRequest struct {
-	RideID  string `json:"rideId"`
-	Rating  int    `json:"rating"`
-	Comment string `json:"comment"`
+	RideID   string `json:"rideId"`
+	TargetID string `json:"targetId"`
+	Rating   int    `json:"rating"`
+	Comment  string `json:"comment"`
 }
 
 func validateReviewRequest(req *reviewRequest) string {
@@ -39,6 +40,12 @@ func validateReviewRequest(req *reviewRequest) string {
 	}
 	if !isUUID(req.RideID) {
 		return "Ride not found."
+	}
+	if req.TargetID == "" {
+		return "Target ID is required."
+	}
+	if !isUUID(req.TargetID) {
+		return "Target not found."
 	}
 	if req.Rating < 1 || req.Rating > 5 {
 		return "Rating must be between 1 and 5."
@@ -61,25 +68,40 @@ func (r *Reviews) Create(c *gin.Context) {
 
 	user := CurrentUser(c)
 
-	var driverID string
+	if user.ID == req.TargetID {
+		fail(c, http.StatusBadRequest, "You cannot review yourself.")
+		return
+	}
+
 	var departureAt time.Time
+	var driverID string
+	var myBookingStatus *string
+	var targetBookingStatus *string
 
 	err := r.DB.QueryRow(c.Request.Context(), `
-		SELECT r.driver_id, r.departure_at
+		SELECT r.departure_at, r.driver_id,
+		       (SELECT status FROM bookings b WHERE b.ride_id = r.id AND b.passenger_id = $1),
+		       (SELECT status FROM bookings b WHERE b.ride_id = r.id AND b.passenger_id = $2)
 		FROM rides r
-		JOIN bookings b ON b.ride_id = r.id
-		WHERE r.id = $1
-		  AND b.passenger_id = $2
-		  AND b.status = 'confirmed'
-	`, req.RideID, user.ID).Scan(&driverID, &departureAt)
+		WHERE r.id = $3
+	`, user.ID, req.TargetID, req.RideID).Scan(&departureAt, &driverID, &myBookingStatus, &targetBookingStatus)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			fail(c, http.StatusNotFound, "Ride not found or you are not a passenger on this ride.")
+			fail(c, http.StatusNotFound, "Ride not found.")
 			return
 		}
-
 		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
+
+	isDriver := driverID == user.ID
+	targetIsDriver := driverID == req.TargetID
+	isConfirmedPassenger := myBookingStatus != nil && *myBookingStatus == "confirmed"
+	targetIsConfirmedPassenger := targetBookingStatus != nil && *targetBookingStatus == "confirmed"
+
+	if !((isDriver && targetIsConfirmedPassenger) || (isConfirmedPassenger && targetIsDriver)) {
+		fail(c, http.StatusNotFound, "Ride not found or invalid review target.")
 		return
 	}
 
@@ -103,7 +125,7 @@ func (r *Reviews) Create(c *gin.Context) {
 	`,
 		req.RideID,
 		user.ID,
-		driverID,
+		req.TargetID,
 		req.Rating,
 		req.Comment,
 	).Scan(
