@@ -30,8 +30,8 @@ type Booking struct {
 // BookingWithTrip wraps a booking with its ride and everyone on it.
 type BookingWithTrip struct {
 	Booking
-	Trip     TripWithDriver `json:"trip"`
-	Reviewed bool           `json:"reviewed"`
+	Trip         TripWithDriver `json:"trip"`
+	ReviewRating *int           `json:"reviewRating"`
 }
 
 type bookingRequest struct {
@@ -54,14 +54,15 @@ func (bkg *Bookings) ListMine(c *gin.Context) {
 			r.departure_at, r.seats_total,
 			COALESCE((SELECT SUM(seats) FROM bookings b2 WHERE b2.ride_id = r.id AND b2.status = 'confirmed'), 0)::int AS seats_booked,
 			r.price_per_seat, r.currency, r.notes, r.created_at,
-			`+passengersOf("r.id")+`,
+			`+passengersOf("r.id", "r.driver_id")+`,
 			d.id, d.name, d.created_at,
-			EXISTS (
-				SELECT 1
+			(
+				SELECT rv.rating
 				FROM reviews rv
 				WHERE rv.ride_id = r.id
 				  AND rv.reviewer_id = b.passenger_id
-			) AS reviewed
+				LIMIT 1
+			) AS review_rating
 		FROM bookings b
 		JOIN rides r ON b.ride_id = r.id
 		JOIN users d ON r.driver_id = d.id
@@ -87,7 +88,7 @@ func (bkg *Bookings) ListMine(c *gin.Context) {
 			&bt.Trip.PricePerSeat, &bt.Trip.Currency, &bt.Trip.Notes,
 			&bt.Trip.CreatedAt, &bt.Trip.Passengers,
 			&bt.Trip.Driver.ID, &bt.Trip.Driver.Name, &bt.Trip.Driver.JoinedAt,
-			&bt.Reviewed,
+			&bt.ReviewRating,
 		)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, "Something went wrong.")
