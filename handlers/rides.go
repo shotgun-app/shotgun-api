@@ -39,9 +39,10 @@ type Ride struct {
 
 // PublicUser is what other users may see of a driver or passenger. Contact details stay private
 type PublicUser struct {
-	ID       string    `json:"id"`
-	Name     string    `json:"name"`
-	JoinedAt time.Time `json:"joinedAt"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	JoinedAt     time.Time `json:"joinedAt"`
+	ReviewRating *int      `json:"reviewRating,omitempty"`
 }
 
 // TripWithDriver represents a ride along with the driver profile.
@@ -54,11 +55,19 @@ var rideColumns = `id, driver_id, origin_city, origin_country, destination_city,
 	departure_at, seats_total,
 	COALESCE((SELECT SUM(seats) FROM bookings WHERE ride_id = rides.id AND status = 'confirmed'), 0)::int AS seats_booked,
 	price_per_seat, currency, notes, created_at,
-	` + passengersOf("rides.id")
+	` + passengersOf("rides.id", "rides.driver_id")
 
 // passengersOf selects the confirmed passengers of a ride as a JSON array, in booking order
-func passengersOf(rideID string) string {
-	return `COALESCE((SELECT json_agg(json_build_object('id', pu.id, 'name', pu.name, 'joinedAt', pu.created_at) ORDER BY pb.created_at)
+func passengersOf(rideID, driverIDCol string) string {
+	return `COALESCE((SELECT json_agg(json_build_object(
+		'id', pu.id, 
+		'name', pu.name, 
+		'joinedAt', pu.created_at,
+		'reviewRating', (
+			SELECT rv.rating FROM reviews rv 
+			WHERE rv.ride_id = ` + rideID + ` AND rv.reviewee_id = pu.id AND rv.reviewer_id = ` + driverIDCol + ` LIMIT 1
+		)
+	) ORDER BY pb.created_at)
 		FROM bookings pb JOIN users pu ON pu.id = pb.passenger_id
 		WHERE pb.ride_id = ` + rideID + ` AND pb.status = 'confirmed'), '[]') AS passengers`
 }

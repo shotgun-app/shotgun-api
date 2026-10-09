@@ -42,22 +42,12 @@ func (u *Users) Get(c *gin.Context) {
 		return
 	}
 
-	var driverScore float64
-	err = u.DB.QueryRow(c.Request.Context(), `
-		SELECT COALESCE(AVG(rating), 0)
-		FROM reviews
-		WHERE reviewee_id = $1
-	`, id).Scan(&driverScore)
-	if err != nil {
-		fail(c, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-
 	rows, err := u.DB.Query(c.Request.Context(), `
-		SELECT id, ride_id, reviewer_id, rating, comment, created_at
-		FROM reviews
-		WHERE reviewee_id = $1
-		ORDER BY created_at DESC
+		SELECT r.id, r.ride_id, r.reviewer_id, r.rating, r.comment, r.created_at, rd.driver_id
+		FROM reviews r
+		JOIN rides rd ON rd.id = r.ride_id
+		WHERE r.reviewee_id = $1
+		ORDER BY r.created_at DESC
 	`, id)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "Something went wrong.")
@@ -65,9 +55,14 @@ func (u *Users) Get(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	reviews := make([]ProfileReview, 0)
+	driverReviews := make([]ProfileReview, 0)
+	passengerReviews := make([]ProfileReview, 0)
+	var driverSum, passengerSum int
+	var driverCount, passengerCount int
+
 	for rows.Next() {
 		var review ProfileReview
+		var driverID string
 		if err := rows.Scan(
 			&review.ID,
 			&review.RideID,
@@ -75,11 +70,21 @@ func (u *Users) Get(c *gin.Context) {
 			&review.Rating,
 			&review.Comment,
 			&review.CreatedAt,
+			&driverID,
 		); err != nil {
 			fail(c, http.StatusInternalServerError, "Something went wrong.")
 			return
 		}
-		reviews = append(reviews, review)
+
+		if driverID == id {
+			driverReviews = append(driverReviews, review)
+			driverSum += review.Rating
+			driverCount++
+		} else {
+			passengerReviews = append(passengerReviews, review)
+			passengerSum += review.Rating
+			passengerCount++
+		}
 	}
 
 	if err := rows.Err(); err != nil {
@@ -87,9 +92,19 @@ func (u *Users) Get(c *gin.Context) {
 		return
 	}
 
+	var driverScore, passengerScore float64
+	if driverCount > 0 {
+		driverScore = float64(driverSum) / float64(driverCount)
+	}
+	if passengerCount > 0 {
+		passengerScore = float64(passengerSum) / float64(passengerCount)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"user":        user,
-		"driverScore": driverScore,
-		"reviews":     reviews,
+		"user":             user,
+		"driverScore":      driverScore,
+		"passengerScore":   passengerScore,
+		"reviews":          driverReviews,
+		"passengerReviews": passengerReviews,
 	})
 }
