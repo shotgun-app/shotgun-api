@@ -23,6 +23,8 @@ type Booking struct {
 	TripID      string    `json:"tripId"`
 	PassengerID string    `json:"passengerId"`
 	Seats       int       `json:"seats"`
+	SmallBags   int       `json:"smallBags"`
+	LargeBags   int       `json:"largeBags"`
 	Status      string    `json:"status"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
@@ -35,8 +37,29 @@ type BookingWithTrip struct {
 }
 
 type bookingRequest struct {
-	TripID string `json:"tripId"`
-	Seats  int    `json:"seats"`
+	TripID    string `json:"tripId"`
+	Seats     int    `json:"seats"`
+	SmallBags int    `json:"smallBags"`
+	LargeBags int    `json:"largeBags"`
+}
+
+// bagsLeftError returns the 409 message when a booking asks for more bags of one size than the ride has left, or "".
+// A ride that offers none of that size says so instead of "Only 0 left"
+func bagsLeftError(size string, want, total, left int) string {
+	if want <= left {
+		return ""
+	}
+	if total == 0 {
+		return fmt.Sprintf("This ride has no space for %s bags.", size)
+	}
+	if left <= 0 {
+		return fmt.Sprintf("No %s bag space left on this ride.", size)
+	}
+	plural := "s"
+	if left == 1 {
+		plural = ""
+	}
+	return fmt.Sprintf("Only %d %s bag%s left.", left, size, plural)
 }
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -49,10 +72,11 @@ func (bkg *Bookings) ListMine(c *gin.Context) {
 	user := CurrentUser(c)
 	rows, err := bkg.DB.Query(c.Request.Context(), `
 		SELECT
-			b.id, b.ride_id, b.passenger_id, b.seats, b.status, b.created_at,
+			b.id, b.ride_id, b.passenger_id, b.seats, b.small_bags, b.large_bags, b.status, b.created_at,
 			r.id, r.driver_id, r.origin_city, r.origin_country, r.destination_city, r.destination_country,
 			r.departure_at, r.seats_total,
-			COALESCE((SELECT SUM(seats) FROM bookings b2 WHERE b2.ride_id = r.id AND b2.status = 'confirmed'), 0)::int AS seats_booked,
+			`+bookedOf("r.id")+`,
+				r.small_bags_total, r.large_bags_total,
 			r.price_per_seat, r.currency, r.notes, r.created_at,
 			`+passengersOf("r.id", "r.driver_id")+`,
 			d.id, d.name, d.created_at,
@@ -79,12 +103,13 @@ func (bkg *Bookings) ListMine(c *gin.Context) {
 		var bt BookingWithTrip
 		var status string
 		err := rows.Scan(
-			&bt.ID, &bt.TripID, &bt.PassengerID, &bt.Seats, &status, &bt.CreatedAt,
+			&bt.ID, &bt.TripID, &bt.PassengerID, &bt.Seats, &bt.SmallBags, &bt.LargeBags, &status, &bt.CreatedAt,
 			&bt.Trip.ID, &bt.Trip.DriverID,
 			&bt.Trip.OriginCity, &bt.Trip.OriginCountry,
 			&bt.Trip.DestinationCity, &bt.Trip.DestinationCountry,
 			&bt.Trip.DepartureAt,
-			&bt.Trip.SeatsTotal, &bt.Trip.SeatsBooked,
+			&bt.Trip.SeatsTotal, &bt.Trip.SeatsBooked, &bt.Trip.SmallBagsBooked, &bt.Trip.LargeBagsBooked,
+			&bt.Trip.SmallBagsTotal, &bt.Trip.LargeBagsTotal,
 			&bt.Trip.PricePerSeat, &bt.Trip.Currency, &bt.Trip.Notes,
 			&bt.Trip.CreatedAt, &bt.Trip.Passengers,
 			&bt.Trip.Driver.ID, &bt.Trip.Driver.Name, &bt.Trip.Driver.JoinedAt,
@@ -115,6 +140,10 @@ func (bkg *Bookings) Create(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "You must book at least 1 seat.")
 		return
 	}
+	if req.SmallBags < 0 || req.LargeBags < 0 {
+		fail(c, http.StatusBadRequest, "Bag counts cannot be negative.")
+		return
+	}
 	tripID := req.TripID
 	if tripID == "" {
 		fail(c, http.StatusBadRequest, "Trip ID is required.")
@@ -136,11 +165,11 @@ func (bkg *Bookings) Create(c *gin.Context) {
 
 	// Check ride existence and capacity with row lock
 	var driverID string
-	var seatsTotal int
+	var seatsTotal, smallTotal, largeTotal int
 	var departureAt time.Time
 	err = tx.QueryRow(c.Request.Context(),
-		`SELECT driver_id, seats_total, departure_at FROM rides WHERE id = $1 FOR UPDATE`, tripID,
-	).Scan(&driverID, &seatsTotal, &departureAt)
+		`SELECT driver_id, seats_total, small_bags_total, large_bags_total, departure_at FROM rides WHERE id = $1 FOR UPDATE`, tripID,
+	).Scan(&driverID, &seatsTotal, &smallTotal, &largeTotal, &departureAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			fail(c, http.StatusNotFound, "Trip not found.")
@@ -174,12 +203,13 @@ func (bkg *Bookings) Create(c *gin.Context) {
 		return
 	}
 
-	// Calculate currently booked seats
-	var seatsBooked int
+	// Calculate currently booked seats and bags
+	var seatsBooked, smallBooked, largeBooked int
 	err = tx.QueryRow(c.Request.Context(),
-		`SELECT COALESCE(SUM(seats), 0)::int FROM bookings WHERE ride_id = $1 AND status = 'confirmed'`,
+		`SELECT COALESCE(SUM(seats), 0)::int, COALESCE(SUM(small_bags), 0)::int, COALESCE(SUM(large_bags), 0)::int
+		 FROM bookings WHERE ride_id = $1 AND status = 'confirmed'`,
 		tripID,
-	).Scan(&seatsBooked)
+	).Scan(&seatsBooked, &smallBooked, &largeBooked)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "Something went wrong.")
 		return
@@ -198,15 +228,23 @@ func (bkg *Bookings) Create(c *gin.Context) {
 		}
 		return
 	}
+	if msg := bagsLeftError("small", req.SmallBags, smallTotal, smallTotal-smallBooked); msg != "" {
+		fail(c, http.StatusConflict, msg)
+		return
+	}
+	if msg := bagsLeftError("large", req.LargeBags, largeTotal, largeTotal-largeBooked); msg != "" {
+		fail(c, http.StatusConflict, msg)
+		return
+	}
 
 	var b Booking
 	var status string
 	err = tx.QueryRow(c.Request.Context(),
-		`INSERT INTO bookings (ride_id, passenger_id, seats, status)
-		 VALUES ($1, $2, $3, 'confirmed')
-		 RETURNING id, ride_id, passenger_id, seats, status, created_at`,
-		tripID, user.ID, req.Seats,
-	).Scan(&b.ID, &b.TripID, &b.PassengerID, &b.Seats, &status, &b.CreatedAt)
+		`INSERT INTO bookings (ride_id, passenger_id, seats, small_bags, large_bags, status)
+		 VALUES ($1, $2, $3, $4, $5, 'confirmed')
+		 RETURNING id, ride_id, passenger_id, seats, small_bags, large_bags, status, created_at`,
+		tripID, user.ID, req.Seats, req.SmallBags, req.LargeBags,
+	).Scan(&b.ID, &b.TripID, &b.PassengerID, &b.Seats, &b.SmallBags, &b.LargeBags, &status, &b.CreatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			fail(c, http.StatusConflict, "You already have a booking on this trip.")
@@ -225,8 +263,11 @@ func (bkg *Bookings) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, b)
 }
 
+// Bag fields are pointers so a seats-only PATCH keeps the bags already booked
 type updateBookingRequest struct {
-	Seats int `json:"seats"`
+	Seats     int  `json:"seats"`
+	SmallBags *int `json:"smallBags"`
+	LargeBags *int `json:"largeBags"`
 }
 
 // Update changes the number of seats on an existing confirmed booking.
@@ -245,6 +286,10 @@ func (bkg *Bookings) Update(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "You must book at least 1 seat.")
 		return
 	}
+	if (req.SmallBags != nil && *req.SmallBags < 0) || (req.LargeBags != nil && *req.LargeBags < 0) {
+		fail(c, http.StatusBadRequest, "Bag counts cannot be negative.")
+		return
+	}
 
 	user := CurrentUser(c)
 
@@ -257,11 +302,11 @@ func (bkg *Bookings) Update(c *gin.Context) {
 
 	// Find the booking and lock it
 	var rideID string
-	var currentSeats int
+	var currentSeats, currentSmall, currentLarge int
 	err = tx.QueryRow(c.Request.Context(),
-		`SELECT ride_id, seats FROM bookings WHERE id = $1 AND passenger_id = $2 AND status = 'confirmed' FOR UPDATE`,
+		`SELECT ride_id, seats, small_bags, large_bags FROM bookings WHERE id = $1 AND passenger_id = $2 AND status = 'confirmed' FOR UPDATE`,
 		id, user.ID,
-	).Scan(&rideID, &currentSeats)
+	).Scan(&rideID, &currentSeats, &currentSmall, &currentLarge)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			fail(c, http.StatusNotFound, "Booking not found.")
@@ -272,20 +317,21 @@ func (bkg *Bookings) Update(c *gin.Context) {
 	}
 
 	// Check capacity on ride
-	var seatsTotal int
+	var seatsTotal, smallTotal, largeTotal int
 	err = tx.QueryRow(c.Request.Context(),
-		`SELECT seats_total FROM rides WHERE id = $1 FOR UPDATE`, rideID,
-	).Scan(&seatsTotal)
+		`SELECT seats_total, small_bags_total, large_bags_total FROM rides WHERE id = $1 FOR UPDATE`, rideID,
+	).Scan(&seatsTotal, &smallTotal, &largeTotal)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "Something went wrong.")
 		return
 	}
 
-	var seatsBooked int
+	var seatsBooked, smallBooked, largeBooked int
 	err = tx.QueryRow(c.Request.Context(),
-		`SELECT COALESCE(SUM(seats), 0)::int FROM bookings WHERE ride_id = $1 AND status = 'confirmed'`,
+		`SELECT COALESCE(SUM(seats), 0)::int, COALESCE(SUM(small_bags), 0)::int, COALESCE(SUM(large_bags), 0)::int
+		 FROM bookings WHERE ride_id = $1 AND status = 'confirmed'`,
 		rideID,
-	).Scan(&seatsBooked)
+	).Scan(&seatsBooked, &smallBooked, &largeBooked)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "Something went wrong.")
 		return
@@ -301,15 +347,31 @@ func (bkg *Bookings) Update(c *gin.Context) {
 		return
 	}
 
+	small, large := currentSmall, currentLarge
+	if req.SmallBags != nil {
+		small = *req.SmallBags
+	}
+	if req.LargeBags != nil {
+		large = *req.LargeBags
+	}
+	if msg := bagsLeftError("small", small, smallTotal, smallTotal-(smallBooked-currentSmall)); msg != "" {
+		fail(c, http.StatusConflict, msg)
+		return
+	}
+	if msg := bagsLeftError("large", large, largeTotal, largeTotal-(largeBooked-currentLarge)); msg != "" {
+		fail(c, http.StatusConflict, msg)
+		return
+	}
+
 	var b Booking
 	var status string
 	err = tx.QueryRow(c.Request.Context(),
 		`UPDATE bookings
-		 SET seats = $1, updated_at = now()
+		 SET seats = $1, small_bags = $4, large_bags = $5, updated_at = now()
 		 WHERE id = $2 AND passenger_id = $3 AND status = 'confirmed'
-		 RETURNING id, ride_id, passenger_id, seats, status, created_at`,
-		req.Seats, id, user.ID,
-	).Scan(&b.ID, &b.TripID, &b.PassengerID, &b.Seats, &status, &b.CreatedAt)
+		 RETURNING id, ride_id, passenger_id, seats, small_bags, large_bags, status, created_at`,
+		req.Seats, id, user.ID, small, large,
+	).Scan(&b.ID, &b.TripID, &b.PassengerID, &b.Seats, &b.SmallBags, &b.LargeBags, &status, &b.CreatedAt)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "Something went wrong.")
 		return
