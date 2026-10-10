@@ -29,6 +29,10 @@ type Ride struct {
 	DepartureAt        time.Time `json:"departureAt"`
 	SeatsTotal         int       `json:"seatsTotal"`
 	SeatsBooked        int       `json:"seatsBooked"`
+	SmallBagsTotal     int       `json:"smallBagsTotal"`
+	SmallBagsBooked    int       `json:"smallBagsBooked"`
+	LargeBagsTotal     int       `json:"largeBagsTotal"`
+	LargeBagsBooked    int       `json:"largeBagsBooked"`
 	PricePerSeat       float64   `json:"pricePerSeat"`
 	Currency           string    `json:"currency"`
 	Notes              string    `json:"notes"`
@@ -53,9 +57,28 @@ type TripWithDriver struct {
 
 var rideColumns = `id, driver_id, origin_city, origin_country, destination_city, destination_country,
 	departure_at, seats_total,
-	COALESCE((SELECT SUM(seats) FROM bookings WHERE ride_id = rides.id AND status = 'confirmed'), 0)::int AS seats_booked,
+	` + bookedOf("rides.id") + `,
+	small_bags_total, large_bags_total,
 	price_per_seat, currency, notes, created_at,
 	` + passengersOf("rides.id", "rides.driver_id")
+
+// Car limits: a van is about the biggest vehicle for a shared ride
+const (
+	maxSeats     = 8
+	maxSmallBags = 8
+	maxLargeBags = 4
+)
+
+// bookedOf selects the seats and bags taken by confirmed bookings of a ride (seats_booked, small_bags_booked, large_bags_booked).
+// The inner table is aliased so rideID can be a column of the outer query without clashing
+func bookedOf(rideID string) string {
+	sum := func(col, alias string) string {
+		return `COALESCE((SELECT SUM(bk.` + col + `) FROM bookings bk WHERE bk.ride_id = ` + rideID + ` AND bk.status = 'confirmed'), 0)::int AS ` + alias
+	}
+	return sum("seats", "seats_booked") + ", " +
+		sum("small_bags", "small_bags_booked") + ", " +
+		sum("large_bags", "large_bags_booked")
+}
 
 // passengersOf selects the confirmed passengers of a ride as a JSON array, in booking order
 func passengersOf(rideID, driverIDCol string) string {
@@ -79,7 +102,8 @@ func scanRide(row pgx.Row) (*Ride, error) {
 		&r.OriginCity, &r.OriginCountry,
 		&r.DestinationCity, &r.DestinationCountry,
 		&r.DepartureAt,
-		&r.SeatsTotal, &r.SeatsBooked,
+		&r.SeatsTotal, &r.SeatsBooked, &r.SmallBagsBooked, &r.LargeBagsBooked,
+		&r.SmallBagsTotal, &r.LargeBagsTotal,
 		&r.PricePerSeat, &r.Currency, &r.Notes,
 		&r.CreatedAt, &r.Passengers,
 	)
@@ -140,7 +164,8 @@ func (ri *Rides) Search(c *gin.Context) {
 		SELECT
 			r.id, r.driver_id, r.origin_city, r.origin_country, r.destination_city, r.destination_country,
 			r.departure_at, r.seats_total,
-			COALESCE((SELECT SUM(seats) FROM bookings WHERE ride_id = r.id AND status = 'confirmed'), 0)::int AS seats_booked,
+			` + bookedOf("r.id") + `,
+			r.small_bags_total, r.large_bags_total,
 			r.price_per_seat, r.currency, r.notes, r.created_at,
 			u.id, u.name, u.created_at
 		FROM rides r
@@ -189,7 +214,8 @@ func (ri *Rides) Search(c *gin.Context) {
 			&t.OriginCity, &t.OriginCountry,
 			&t.DestinationCity, &t.DestinationCountry,
 			&t.DepartureAt,
-			&t.SeatsTotal, &t.SeatsBooked,
+			&t.SeatsTotal, &t.SeatsBooked, &t.SmallBagsBooked, &t.LargeBagsBooked,
+			&t.SmallBagsTotal, &t.LargeBagsTotal,
 			&t.PricePerSeat, &t.Currency, &t.Notes,
 			&t.CreatedAt,
 			&t.Driver.ID, &t.Driver.Name, &t.Driver.JoinedAt,
@@ -214,6 +240,8 @@ type rideRequest struct {
 	DestinationCountry string  `json:"destinationCountry"`
 	DepartureAt        string  `json:"departureAt"` // RFC 3339 / ISO 8601
 	SeatsTotal         int     `json:"seatsTotal"`
+	SmallBagsTotal     int     `json:"smallBagsTotal"`
+	LargeBagsTotal     int     `json:"largeBagsTotal"`
 	PricePerSeat       float64 `json:"pricePerSeat"`
 	Currency           string  `json:"currency"`
 	Notes              string  `json:"notes"`
@@ -232,8 +260,17 @@ func validateRideRequest(req *rideRequest) string {
 	if req.SeatsTotal < 1 {
 		return "Free seats must be at least 1."
 	}
-	if req.SeatsTotal > 15 {
-		return "Free seats cannot exceed 15."
+	if req.SeatsTotal > maxSeats {
+		return fmt.Sprintf("Free seats cannot exceed %d.", maxSeats)
+	}
+	if req.SmallBagsTotal < 0 || req.LargeBagsTotal < 0 {
+		return "Bag space cannot be negative."
+	}
+	if req.SmallBagsTotal > maxSmallBags {
+		return fmt.Sprintf("Small bag space cannot exceed %d.", maxSmallBags)
+	}
+	if req.LargeBagsTotal > maxLargeBags {
+		return fmt.Sprintf("Large bag space cannot exceed %d.", maxLargeBags)
 	}
 	if req.PricePerSeat < 0 {
 		return "Price per seat cannot be negative."
@@ -264,14 +301,16 @@ func (ri *Rides) Create(c *gin.Context) {
 	ride, err := scanRide(ri.DB.QueryRow(c.Request.Context(),
 		`INSERT INTO rides
 		   (driver_id, origin_city, origin_country, destination_city, destination_country,
-		    departure_at, seats_total, price_per_seat, currency, notes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		    departure_at, seats_total, small_bags_total, large_bags_total,
+		    price_per_seat, currency, notes)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		 RETURNING `+rideColumns,
 		user.ID,
 		strings.TrimSpace(req.OriginCity), strings.TrimSpace(req.OriginCountry),
 		strings.TrimSpace(req.DestinationCity), strings.TrimSpace(req.DestinationCountry),
 		req.DepartureAt,
-		req.SeatsTotal, req.PricePerSeat, currency, notes,
+		req.SeatsTotal, req.SmallBagsTotal, req.LargeBagsTotal,
+		req.PricePerSeat, currency, notes,
 	))
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "Something went wrong.")
@@ -326,11 +365,12 @@ func (ri *Rides) Update(c *gin.Context) {
 		return
 	}
 
-	var seatsBooked int
+	var seatsBooked, smallBooked, largeBooked int
 	err = tx.QueryRow(c.Request.Context(),
-		`SELECT COALESCE(SUM(seats), 0)::int FROM bookings WHERE ride_id = $1 AND status = 'confirmed'`,
+		`SELECT COALESCE(SUM(seats), 0)::int, COALESCE(SUM(small_bags), 0)::int, COALESCE(SUM(large_bags), 0)::int
+		 FROM bookings WHERE ride_id = $1 AND status = 'confirmed'`,
 		id,
-	).Scan(&seatsBooked)
+	).Scan(&seatsBooked, &smallBooked, &largeBooked)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "Something went wrong.")
 		return
@@ -339,13 +379,22 @@ func (ri *Rides) Update(c *gin.Context) {
 		fail(c, http.StatusBadRequest, fmt.Sprintf("Total seats cannot be fewer than already booked seats (%d).", seatsBooked))
 		return
 	}
+	if req.SmallBagsTotal < smallBooked {
+		fail(c, http.StatusBadRequest, fmt.Sprintf("Small bag space cannot be less than already booked small bags (%d).", smallBooked))
+		return
+	}
+	if req.LargeBagsTotal < largeBooked {
+		fail(c, http.StatusBadRequest, fmt.Sprintf("Large bag space cannot be less than already booked large bags (%d).", largeBooked))
+		return
+	}
 
 	ride, err := scanRide(tx.QueryRow(c.Request.Context(),
 		`UPDATE rides SET
 		   origin_city = $3, origin_country = $4,
 		   destination_city = $5, destination_country = $6,
 		   departure_at = $7, seats_total = $8,
-		   price_per_seat = $9, currency = $10, notes = $11,
+		   small_bags_total = $9, large_bags_total = $10,
+		   price_per_seat = $11, currency = $12, notes = $13,
 		   updated_at = now()
 		 WHERE id = $1 AND driver_id = $2
 		 RETURNING `+rideColumns,
@@ -353,7 +402,8 @@ func (ri *Rides) Update(c *gin.Context) {
 		strings.TrimSpace(req.OriginCity), strings.TrimSpace(req.OriginCountry),
 		strings.TrimSpace(req.DestinationCity), strings.TrimSpace(req.DestinationCountry),
 		req.DepartureAt,
-		req.SeatsTotal, req.PricePerSeat, currency, notes,
+		req.SeatsTotal, req.SmallBagsTotal, req.LargeBagsTotal,
+		req.PricePerSeat, currency, notes,
 	))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
