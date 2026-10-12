@@ -217,6 +217,78 @@ func TestProtectedRoutesNeedCookie(t *testing.T) {
 	}
 }
 
+func TestSessions(t *testing.T) {
+	e := newTestEnv(t)
+	email := uniqueEmail()
+	e.cleanup(t, email)
+	signIn := func(path, body, userAgent string) *http.Cookie {
+		req := httptest.NewRequest("POST", path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", userAgent)
+		rec := httptest.NewRecorder()
+		e.router.ServeHTTP(rec, req)
+		return sessionCookie(rec)
+	}
+	phone := signIn("/auth/register", registerBody(email), "Phone UA")
+	laptop := signIn("/auth/login", fmt.Sprintf(`{"email":%q,"password":"password123"}`, email), "Laptop UA")
+
+	rec := e.do("GET", "/auth/me/sessions", "", laptop)
+	var body struct {
+		Sessions []struct {
+			ID        string
+			UserAgent string
+			Current   bool
+		}
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if rec.Code != http.StatusOK || len(body.Sessions) != 2 {
+		t.Fatalf("list = %d %s", rec.Code, rec.Body)
+	}
+	// Newest first: the laptop login, which is also the session asking
+	laptopID, phoneID := body.Sessions[0].ID, body.Sessions[1].ID
+	if s := body.Sessions[0]; s.UserAgent != "Laptop UA" || !s.Current {
+		t.Errorf("first session = %+v, want the current Laptop UA", s)
+	}
+	if s := body.Sessions[1]; s.UserAgent != "Phone UA" || s.Current {
+		t.Errorf("second session = %+v, want Phone UA", s)
+	}
+
+	otherEmail := uniqueEmail()
+	e.cleanup(t, otherEmail)
+	other := sessionCookie(e.do("POST", "/auth/register", registerBody(otherEmail), nil))
+	if rec := e.do("DELETE", "/auth/me/sessions/"+phoneID, "", other); rec.Code != http.StatusNotFound {
+		t.Errorf("delete someone else's session = %d, want 404", rec.Code)
+	}
+	if rec := e.do("DELETE", "/auth/me/sessions/not-a-uuid", "", laptop); rec.Code != http.StatusNotFound {
+		t.Errorf("delete malformed id = %d, want 404", rec.Code)
+	}
+
+	rec = e.do("DELETE", "/auth/me/sessions/"+phoneID, "", laptop)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete other session = %d %s", rec.Code, rec.Body)
+	}
+	if sessionCookie(rec) != nil {
+		t.Errorf("deleting another session must not touch the cookie")
+	}
+	if rec := e.do("GET", "/auth/me", "", phone); rec.Code != http.StatusUnauthorized {
+		t.Errorf("deleted session = %d, want 401", rec.Code)
+	}
+	if rec := e.do("GET", "/auth/me", "", laptop); rec.Code != http.StatusOK {
+		t.Errorf("remaining session = %d, want 200", rec.Code)
+	}
+
+	rec = e.do("DELETE", "/auth/me/sessions/"+laptopID, "", laptop)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete current session = %d %s", rec.Code, rec.Body)
+	}
+	if c := sessionCookie(rec); c == nil || c.MaxAge >= 0 {
+		t.Errorf("deleting the current session must clear the cookie, got %+v", c)
+	}
+	if rec := e.do("GET", "/auth/me", "", laptop); rec.Code != http.StatusUnauthorized {
+		t.Errorf("after deleting the current session = %d, want 401", rec.Code)
+	}
+}
+
 func TestChangePassword(t *testing.T) {
 	e := newTestEnv(t)
 	email := uniqueEmail()

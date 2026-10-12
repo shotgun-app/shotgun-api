@@ -29,12 +29,14 @@ Errors are JSON: `{"message": "..."}`.
 | `GET`    | `/auth/me`       | yes  | `200 {user}`, `401` without a valid session                 |
 | `PATCH`  | `/auth/me`       | yes  | `{name?, email?, phone?}`, `200 {user}`, `409` duplicate email |
 | `DELETE` | `/auth/me`       | yes  | deletes the account and its sessions, `204`                 |
+| `GET`    | `/auth/me/sessions` | yes | `200 {sessions}`, the user's unexpired sessions, newest first |
+| `DELETE` | `/auth/me/sessions/:id` | yes | `204`, `404` not the user's session; clears the cookie if it is the current session |
 | `POST`   | `/auth/password` | yes  | `{currentPassword, newPassword}`, `204`, `401` wrong current password; ends all other sessions |
 | `POST`   | `/auth/forgot-password` | no | `{email}`, `204` whether or not the account exists, `400` malformed email |
 | `GET`    | `/auth/reset-password?token=` | no | `204` if the token is valid and unexpired, `400` otherwise; does not use it up |
 | `POST`   | `/auth/reset-password`  | no | `{token, password}`, `204`, `400` invalid or expired token; ends all of the user's sessions |
 
-`user` is `{id, name, email, phone, joinedAt}`. `phone` is E.164 (`+38640123456`) and required on register; `PATCH` cannot empty it. Accounts created before this rule may still have `null`. Settings (`SESSION_TTL_HOURS`,
+`user` is `{id, name, email, phone, joinedAt}`. A session is `{id, userAgent, createdAt, expiresAt, current}`; `userAgent` is the User-Agent header from login or register, and `current` marks the session making the request. `phone` is E.164 (`+38640123456`) and required on register; `PATCH` cannot empty it. Accounts created before this rule may still have `null`. Settings (`SESSION_TTL_HOURS`,
 `COOKIE_SECURE`, `ALLOWED_ORIGIN`) are in `.env.example`.
 Set `COOKIE_SECURE=true` when serving over HTTPS.
 
