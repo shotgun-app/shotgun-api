@@ -50,10 +50,24 @@ func TestBaggageCapacity(t *testing.T) {
 		t.Errorf("small over capacity = %d %s, want 409 only 1 left", rec.Code, rec.Body)
 	}
 
-	var trips []struct{ SmallBagsTotal, SmallBagsBooked, LargeBagsTotal, LargeBagsBooked int }
+	// Other tests leave rides with the same route and time behind, so find this one by id
+	var trips []struct {
+		ID                                                               string
+		SmallBagsTotal, SmallBagsBooked, LargeBagsTotal, LargeBagsBooked int
+	}
 	_ = json.Unmarshal(e.do("GET", "/api/trips?origin=Ljubljana", "", second).Body.Bytes(), &trips)
-	if len(trips) == 0 || trips[0].SmallBagsBooked != 1 || trips[0].LargeBagsBooked != 1 || trips[0].SmallBagsTotal != 2 || trips[0].LargeBagsTotal != 1 {
-		t.Errorf("search bags = %+v, want 1/2 small and 1/1 large", trips)
+	found := false
+	for _, trip := range trips {
+		if trip.ID != rideID {
+			continue
+		}
+		found = true
+		if trip.SmallBagsBooked != 1 || trip.LargeBagsBooked != 1 || trip.SmallBagsTotal != 2 || trip.LargeBagsTotal != 1 {
+			t.Errorf("search bags = %+v, want 1/2 small and 1/1 large", trip)
+		}
+	}
+	if !found {
+		t.Errorf("ride %s missing from search results", rideID)
 	}
 
 	// Cancelling frees the bags

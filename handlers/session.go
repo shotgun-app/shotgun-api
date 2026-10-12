@@ -31,8 +31,8 @@ func (a *Auth) startSession(ctx context.Context, c *gin.Context, userID string) 
 	}
 	expires := time.Now().Add(a.Cfg.SessionTTL)
 	_, err = a.DB.Exec(ctx,
-		`INSERT INTO sessions (user_id, token, expires_at) VALUES ($1, $2, $3)`,
-		userID, token, expires)
+		`INSERT INTO sessions (user_id, token, expires_at, user_agent) VALUES ($1, $2, $3, $4)`,
+		userID, token, expires, c.Request.UserAgent())
 	if err != nil {
 		return err
 	}
@@ -81,4 +81,69 @@ func (a *Auth) RequireAuth(c *gin.Context) {
 	}
 	c.Set(userKey, user)
 	c.Next()
+}
+
+// Session is one signed-in device of the user
+type Session struct {
+	ID        string    `json:"id"`
+	UserAgent string    `json:"userAgent"`
+	CreatedAt time.Time `json:"createdAt"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	Current   bool      `json:"current"`
+}
+
+// ListSessions returns the user's unexpired sessions, newest first. Current marks the session
+// making the request, so the web app knows that deleting it signs the user out
+func (a *Auth) ListSessions(c *gin.Context) {
+	token, _ := c.Cookie(SessionCookie)
+	rows, err := a.DB.Query(c.Request.Context(),
+		`SELECT id, user_agent, created_at, expires_at, token = $2
+		 FROM sessions WHERE user_id = $1 AND expires_at > now()
+		 ORDER BY created_at DESC`, CurrentUser(c).ID, token)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
+	defer rows.Close()
+
+	list := make([]Session, 0)
+	for rows.Next() {
+		var s Session
+		if err := rows.Scan(&s.ID, &s.UserAgent, &s.CreatedAt, &s.ExpiresAt, &s.Current); err != nil {
+			fail(c, http.StatusInternalServerError, "Something went wrong.")
+			return
+		}
+		list = append(list, s)
+	}
+	if err := rows.Err(); err != nil {
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"sessions": list})
+}
+
+// DeleteSession ends one of the user's sessions. Ending the current one also clears the cookie
+func (a *Auth) DeleteSession(c *gin.Context) {
+	id := c.Param("id")
+	if !isUUID(id) {
+		fail(c, http.StatusNotFound, "Session not found.")
+		return
+	}
+	token, _ := c.Cookie(SessionCookie)
+	var current bool
+	err := a.DB.QueryRow(c.Request.Context(),
+		`DELETE FROM sessions WHERE id = $1 AND user_id = $2 RETURNING token = $3`,
+		id, CurrentUser(c).ID, token).Scan(&current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(c, http.StatusNotFound, "Session not found.")
+		return
+	}
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
+	if current {
+		a.clearCookie(c)
+	}
+	c.Status(http.StatusNoContent)
 }

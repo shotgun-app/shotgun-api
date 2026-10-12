@@ -45,6 +45,8 @@ func setupRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
 	me.GET("", auth.Me)
 	me.PATCH("", auth.UpdateMe)
 	me.DELETE("", auth.DeleteMe)
+	me.GET("/sessions", auth.ListSessions)
+	me.DELETE("/sessions/:id", auth.DeleteSession)
 	r.POST("/auth/password", auth.RequireAuth, auth.ChangePassword)
 	r.POST("/auth/forgot-password", auth.ForgotPassword)
 	r.GET("/auth/reset-password", auth.CheckResetToken)

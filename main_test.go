@@ -30,6 +30,8 @@ func TestUnauthenticatedRoutes(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodGet, "/auth/me/sessions"},
+		{http.MethodDelete, "/auth/me/sessions/123"},
 		{http.MethodGet, "/api/trips"},
 		{http.MethodGet, "/api/bookings/mine"},
 		{http.MethodPost, "/api/bookings"},
