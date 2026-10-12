@@ -31,8 +31,8 @@ func (a *Auth) startSession(ctx context.Context, c *gin.Context, userID string) 
 	}
 	expires := time.Now().Add(a.Cfg.SessionTTL)
 	_, err = a.DB.Exec(ctx,
-		`INSERT INTO sessions (user_id, token, expires_at) VALUES ($1, $2, $3)`,
-		userID, token, expires)
+		`INSERT INTO sessions (user_id, token, expires_at, user_agent) VALUES ($1, $2, $3, $4)`,
+		userID, token, expires, c.Request.UserAgent())
 	if err != nil {
 		return err
 	}
