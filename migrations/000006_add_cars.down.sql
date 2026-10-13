@@ -1,0 +1,3 @@
+ALTER TABLE users DROP COLUMN car_id;
+
+DROP TABLE cars;
