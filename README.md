@@ -35,8 +35,9 @@ Errors are JSON: `{"message": "..."}`.
 | `POST`   | `/auth/forgot-password` | no | `{email}`, `204` whether or not the account exists, `400` malformed email |
 | `GET`    | `/auth/reset-password?token=` | no | `204` if the token is valid and unexpired, `400` otherwise; does not use it up |
 | `POST`   | `/auth/reset-password`  | no | `{token, password}`, `204`, `400` invalid or expired token; ends all of the user's sessions |
+| `PUT`    | `/auth/me/car`   | yes  | `{carId}` (uuid, or `null` to clear), `200 {user}`, `400` invalid id, `404` unknown car |
 
-`user` is `{id, name, email, phone, joinedAt}`. A session is `{id, userAgent, createdAt, expiresAt, current}`; `userAgent` is the User-Agent header from login or register, and `current` marks the session making the request. `phone` is E.164 (`+38640123456`) and required on register; `PATCH` cannot empty it. Accounts created before this rule may still have `null`. Settings (`SESSION_TTL_HOURS`,
+`user` is `{id, name, email, phone, joinedAt, car}`. `car` is `{id, brand, model, co2}` (`co2` in grams per km) or `null` when the user has not picked one. A session is `{id, userAgent, createdAt, expiresAt, current}`; `userAgent` is the User-Agent header from login or register, and `current` marks the session making the request. `phone` is E.164 (`+38640123456`) and required on register; `PATCH` cannot empty it. Accounts created before this rule may still have `null`. Settings (`SESSION_TTL_HOURS`,
 `COOKIE_SECURE`, `ALLOWED_ORIGIN`) are in `.env.example`.
 Set `COOKIE_SECURE=true` when serving over HTTPS.
 
