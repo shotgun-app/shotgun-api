@@ -30,6 +30,8 @@ var SupportedLocations = map[string][]string{
 	"Spain":          {"Madrid", "Barcelona", "Valencia", "Seville"},
 	"United Kingdom": {"London", "Manchester", "Birmingham", "Edinburgh"},
 	"Italy":          {"Rome", "Milan", "Florence", "Naples"},
+	"Slovenia":       {"Ljubljana"},
+	"Croatia":        {"Zagreb"},
 }
 
 // cityCoordinates stores the geographic coordinates of supported cities.
@@ -65,6 +67,8 @@ var cityCoordinates = map[string]Coordinates{
 	"milan":      {Lat: 45.4642, Lon: 9.1900},
 	"florence":   {Lat: 43.7696, Lon: 11.2558},
 	"naples":     {Lat: 40.8518, Lon: 14.2681},
+	"ljubljana":  {Lat: 46.0569, Lon: 14.5058},
+	"zagreb":     {Lat: 45.8150, Lon: 15.9819},
 }
 
 // cityAliases maps common variations, translations, and spellings to canonical city keys.
@@ -134,6 +138,10 @@ var cityAliases = map[string]string{
 	"firenze":           "florence",
 	"naples":            "naples",
 	"napoli":            "naples",
+	"ljubljana":         "ljubljana",
+	"lubiana":           "ljubljana",
+	"zagreb":            "zagreb",
+	"zagabria":          "zagreb",
 }
 
 // routeKey builds a canonical bidirectional key so order does not matter.
@@ -223,6 +231,7 @@ var knownDistances = map[string]int{
 	routeKey("milan", "florence"):        305,
 	routeKey("milan", "naples"):          775,
 	routeKey("florence", "naples"):       475,
+	routeKey("ljubljana", "zagreb"):      140,
 }
 
 // NormalizeCity standardizes a city name (lowercase, trimmed, resolved alias).
@@ -297,4 +306,48 @@ func GetDistanceKm(origin, destination string) (int, error) {
 	}
 
 	return 0, fmt.Errorf("%w: %s -> %s", ErrRouteNotFound, origin, destination)
+}
+
+// BaselineCO2PerKm is the standard single passenger baseline emission factor (120 g/km).
+const BaselineCO2PerKm = 120
+
+// CalculateCO2 computes distance, consumption, and savings for a ride.
+// co2ConsumedKg = (distanceKm * co2PerKmAuto) / 1000
+// co2IndividualKg = (distanceKm * 120) / 1000
+// co2SavedKg = co2IndividualKg - (co2ConsumedKg / (seatsBooked + 1))
+func CalculateCO2(origin, destination string, seatsBooked int, carCO2 *int) (distanceKm int, co2ConsumedKg float64, co2SavedKg float64, isElectric bool) {
+	dist, err := GetDistanceKm(origin, destination)
+	if err != nil || dist <= 0 {
+		return 0, 0, 0, false
+	}
+	distanceKm = dist
+
+	var co2PerKmAuto int
+	if carCO2 != nil {
+		if *carCO2 == 0 {
+			isElectric = true
+			co2PerKmAuto = 0
+		} else {
+			isElectric = false
+			co2PerKmAuto = *carCO2
+		}
+	} else {
+		// Default to standard average combustion car baseline (120 g/km) if no car is registered
+		isElectric = false
+		co2PerKmAuto = BaselineCO2PerKm
+	}
+
+	co2ConsumedKg = math.Round((float64(distanceKm*co2PerKmAuto)/1000.0)*100) / 100
+	co2IndividualKg := (float64(distanceKm * BaselineCO2PerKm)) / 1000.0
+	passengersTotal := seatsBooked + 1
+	if passengersTotal < 1 {
+		passengersTotal = 1
+	}
+
+	saved := co2IndividualKg - (co2ConsumedKg / float64(passengersTotal))
+	if saved < 0 {
+		saved = 0
+	}
+	co2SavedKg = math.Round(saved*100) / 100
+	return
 }

@@ -86,10 +86,12 @@ func (bkg *Bookings) ListMine(c *gin.Context) {
 				WHERE rv.ride_id = r.id
 				  AND rv.reviewer_id = b.passenger_id
 				LIMIT 1
-			) AS review_rating
+			) AS review_rating,
+			c.co2
 		FROM bookings b
 		JOIN rides r ON b.ride_id = r.id
 		JOIN users d ON r.driver_id = d.id
+		LEFT JOIN cars c ON d.car_id = c.id
 		WHERE b.passenger_id = $1 AND b.status = 'confirmed'
 		ORDER BY r.departure_at ASC`, user.ID)
 	if err != nil {
@@ -102,6 +104,7 @@ func (bkg *Bookings) ListMine(c *gin.Context) {
 	for rows.Next() {
 		var bt BookingWithTrip
 		var status string
+		var carCO2 *int
 		err := rows.Scan(
 			&bt.ID, &bt.TripID, &bt.PassengerID, &bt.Seats, &bt.SmallBags, &bt.LargeBags, &status, &bt.CreatedAt,
 			&bt.Trip.ID, &bt.Trip.DriverID,
@@ -114,12 +117,14 @@ func (bkg *Bookings) ListMine(c *gin.Context) {
 			&bt.Trip.CreatedAt, &bt.Trip.Passengers,
 			&bt.Trip.Driver.ID, &bt.Trip.Driver.Name, &bt.Trip.Driver.JoinedAt, &bt.Trip.Driver.AvatarURL,
 			&bt.ReviewRating,
+			&carCO2,
 		)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, "Something went wrong.")
 			return
 		}
 		bt.Status = status
+		bt.Trip.PopulateCO2(carCO2)
 		list = append(list, &bt)
 	}
 	if err := rows.Err(); err != nil {

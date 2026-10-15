@@ -173,3 +173,61 @@ func TestGetDistanceKm_Errors(t *testing.T) {
 		t.Errorf("expected ErrRouteNotFound for unknown city, got %v", err)
 	}
 }
+
+func TestCalculateCO2(t *testing.T) {
+	zero := 0
+	co2_110 := 110
+
+	// 1. Electric car (0 g/km) for Stockholm -> Munich (1420 km) with 0 passengers
+	dist, consumed, saved, isElec := services.CalculateCO2("Stockholm", "Munich", 0, &zero)
+	if dist != 1420 {
+		t.Errorf("dist = %d, want 1420", dist)
+	}
+	if !isElec {
+		t.Errorf("expected isElectric to be true")
+	}
+	if consumed != 0.0 {
+		t.Errorf("consumed = %f, want 0.0", consumed)
+	}
+	// individual = 1420 * 120 / 1000 = 170.4; saved = 170.4 - 0 = 170.4
+	if saved != 170.4 {
+		t.Errorf("saved = %f, want 170.4", saved)
+	}
+
+	// 2. Combustion car with 110 g/km for Gothenburg -> Stockholm (470 km) with 1 passenger
+	dist, consumed, saved, isElec = services.CalculateCO2("Gothenburg", "Stockholm", 1, &co2_110)
+	if dist != 470 {
+		t.Errorf("dist = %d, want 470", dist)
+	}
+	if isElec {
+		t.Errorf("expected isElectric to be false")
+	}
+	// consumed = 470 * 110 / 1000 = 51.7
+	if consumed != 51.7 {
+		t.Errorf("consumed = %f, want 51.7", consumed)
+	}
+	// individual = 470 * 120 / 1000 = 56.4
+	// saved = 56.4 - (51.7 / 2) = 56.4 - 25.85 = 30.55
+	if saved != 30.55 {
+		t.Errorf("saved = %f, want 30.55", saved)
+	}
+
+	// 3. Unassigned car (nil) defaults to 120 g/km baseline
+	dist, consumed, saved, isElec = services.CalculateCO2("Gothenburg", "Stockholm", 1, nil)
+	if dist != 470 || isElec != false {
+		t.Errorf("unexpected dist=%d isElec=%v", dist, isElec)
+	}
+	if consumed != 56.4 {
+		t.Errorf("consumed = %f, want 56.4", consumed)
+	}
+	// saved = 56.4 - 56.4 / 2 = 28.2
+	if saved != 28.2 {
+		t.Errorf("saved = %f, want 28.2", saved)
+	}
+
+	// 4. Unknown route returns zeros
+	dist, consumed, saved, isElec = services.CalculateCO2("Unknown1", "Unknown2", 1, nil)
+	if dist != 0 || consumed != 0 || saved != 0 || isElec != false {
+		t.Errorf("expected zero values for unknown route, got %d, %f, %f, %v", dist, consumed, saved, isElec)
+	}
+}
