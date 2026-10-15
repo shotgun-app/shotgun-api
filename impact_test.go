@@ -114,4 +114,3 @@ func TestImpactCalculationIntegration(t *testing.T) {
 
 	_ = driver
 }
-
