@@ -57,6 +57,11 @@ func setupRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
 	reviews := &handlers.Reviews{DB: pool}
 	users := &handlers.Users{DB: pool}
 	cars := &handlers.Cars{DB: pool}
+	impact := &handlers.Impact{DB: pool}
+
+	r.GET("/impact", impact.Get)
+	r.GET("/api/impact", impact.Get)
+	r.GET("/api/sustainability-impact", impact.Get)
 
 	api := r.Group("/api", auth.RequireAuth)
 	api.GET("/users/:id", users.Get)
