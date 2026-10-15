@@ -25,11 +25,22 @@ func TestImpactUnauthenticatedWithoutDB(t *testing.T) {
 				t.Fatalf("%s status = %d, want %d", path, rec.Code, http.StatusOK)
 			}
 
+			// Raw keys, so a nested or renamed shape cannot pass as all zeros.
+			var raw map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+				t.Fatalf("unmarshal = %v", err)
+			}
+			if _, ok := raw["co2SavedKg"]; !ok {
+				t.Errorf("response has no top-level co2SavedKg: %s", rec.Body.String())
+			}
+			if _, ok := raw["impact"]; ok {
+				t.Errorf("response must be flat, got nested impact: %s", rec.Body.String())
+			}
+
 			var body handlers.SustainabilityStats
 			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 				t.Fatalf("unmarshal = %v", err)
 			}
-
 			if body.TotalCompletedRides != 0 {
 				t.Errorf("TotalCompletedRides = %d, want 0", body.TotalCompletedRides)
 			}
@@ -95,5 +106,4 @@ func TestImpactCalculationIntegration(t *testing.T) {
 		t.Errorf("expected CO2WouldHaveBeenConsumedKg (%f) > CO2ConsumedKg (%f)",
 			stats.CO2WouldHaveBeenConsumedKg, stats.CO2ConsumedKg)
 	}
-
 }
