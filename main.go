@@ -59,6 +59,11 @@ func setupRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
 	reviews := &handlers.Reviews{DB: pool}
 	users := &handlers.Users{DB: pool}
 	cars := &handlers.Cars{DB: pool}
+	impact := &handlers.Impact{DB: pool}
+
+	r.GET("/impact", impact.Get)
+	r.GET("/api/impact", impact.Get)
+	r.GET("/api/sustainability-impact", impact.Get)
 
 	// Public so the web app can use the URL as an <img> src. no-cache makes the browser check
 	// for a newer picture, since a new upload keeps the same URL
