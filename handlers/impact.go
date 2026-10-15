@@ -203,4 +203,3 @@ func (h *Impact) Get(c *gin.Context) {
 		"total_distance_km":               stats.TotalDistanceKmSnake,
 	})
 }
-
