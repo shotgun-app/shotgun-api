@@ -64,11 +64,13 @@ func setupRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
 	r.PUT("/auth/me/car", auth.RequireAuth, cars.SetMine)
 
 	api.GET("/rides/mine", rides.ListMine)
+	api.GET("/rides/:id", rides.Get)
 	api.POST("/rides", rides.Create)
 	api.PUT("/rides/:id", rides.Update)
 	api.DELETE("/rides/:id", rides.Delete)
 
 	api.GET("/trips", rides.Search)
+	api.GET("/trips/:id", rides.Get)
 	api.GET("/bookings/mine", bookings.ListMine)
 	api.POST("/bookings", bookings.Create)
 	api.PATCH("/bookings/:id", bookings.Update)
