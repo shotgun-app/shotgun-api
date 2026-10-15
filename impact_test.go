@@ -25,18 +25,7 @@ func TestImpactUnauthenticatedWithoutDB(t *testing.T) {
 				t.Fatalf("%s status = %d, want %d", path, rec.Code, http.StatusOK)
 			}
 
-			var body struct {
-				Impact                     handlers.SustainabilityStats `json:"impact"`
-				CO2ConsumedKg              float64                      `json:"co2ConsumedKg"`
-				CO2WouldHaveBeenConsumedKg float64                      `json:"co2WouldHaveBeenConsumedKg"`
-				CO2SavedKg                 float64                      `json:"co2SavedKg"`
-				TotalCompletedRides        int                          `json:"totalCompletedRides"`
-				TotalSharedRides           int                          `json:"totalSharedRides"`
-				TotalPassengers            int                          `json:"totalPassengers"`
-				IndividualRidesSaved       int                          `json:"individualRidesSaved"`
-				DriversWithoutShotgun      int                          `json:"driversWithoutShotgun"`
-				TotalDistanceKm            int                          `json:"totalDistanceKm"`
-			}
+			var body handlers.SustainabilityStats
 			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 				t.Fatalf("unmarshal = %v", err)
 			}
@@ -50,7 +39,7 @@ func TestImpactUnauthenticatedWithoutDB(t *testing.T) {
 
 func TestImpactCalculationIntegration(t *testing.T) {
 	e := newTestEnv(t)
-	driverID, driver := e.registerUser(t)
+	driverID, _ := e.registerUser(t)
 	passengerID, _ := e.registerUser(t)
 
 	// Create a completed ride in the past (e.g. 2 hours ago)
@@ -86,12 +75,7 @@ func TestImpactCalculationIntegration(t *testing.T) {
 	}
 
 	var stats handlers.SustainabilityStats
-	var resp struct {
-		Impact handlers.SustainabilityStats `json:"impact"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err == nil && resp.Impact.TotalCompletedRides > 0 {
-		stats = resp.Impact
-	} else if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil {
 		t.Fatalf("parse response: %v", err)
 	}
 
@@ -112,5 +96,4 @@ func TestImpactCalculationIntegration(t *testing.T) {
 			stats.CO2WouldHaveBeenConsumedKg, stats.CO2ConsumedKg)
 	}
 
-	_ = driver
 }

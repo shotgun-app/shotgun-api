@@ -29,45 +29,14 @@ type SustainabilityStats struct {
 	IndividualRidesSaved  int `json:"individualRidesSaved"`
 	DriversWithoutShotgun int `json:"driversWithoutShotgun"`
 	TotalDistanceKm       int `json:"totalDistanceKm"`
-
-	// Snake case aliases for JSON compatibility
-	CO2ConsumedKgSnake              float64 `json:"co2_consumed_kg"`
-	CO2WouldHaveBeenConsumedKgSnake float64 `json:"co2_would_have_been_consumed_kg"`
-	CO2SavedKgSnake                 float64 `json:"co2_saved_kg"`
-	TotalCompletedRidesSnake        int     `json:"total_completed_rides"`
-	TotalSharedRidesSnake           int     `json:"total_shared_rides"`
-	TotalPassengersSnake            int     `json:"total_passengers"`
-	IndividualRidesSavedSnake       int     `json:"individual_rides_saved"`
-	DriversWithoutShotgunSnake      int     `json:"drivers_without_shotgun"`
-	TotalDistanceKmSnake            int     `json:"total_distance_km"`
 }
 
 // Get returns the dynamic sustainability impact of all completed rides.
 // This endpoint is unauthenticated and publicly accessible.
 func (h *Impact) Get(c *gin.Context) {
+	// Router tests run without a database; an empty platform reports all zeros.
 	if h.DB == nil {
-		stats := SustainabilityStats{}
-		c.JSON(http.StatusOK, gin.H{
-			"impact":                          stats,
-			"co2ConsumedKg":                   stats.CO2ConsumedKg,
-			"co2WouldHaveBeenConsumedKg":      stats.CO2WouldHaveBeenConsumedKg,
-			"co2SavedKg":                      stats.CO2SavedKg,
-			"totalCompletedRides":             stats.TotalCompletedRides,
-			"totalSharedRides":                stats.TotalSharedRides,
-			"totalPassengers":                 stats.TotalPassengers,
-			"individualRidesSaved":            stats.IndividualRidesSaved,
-			"driversWithoutShotgun":           stats.DriversWithoutShotgun,
-			"totalDistanceKm":                 stats.TotalDistanceKm,
-			"co2_consumed_kg":                 stats.CO2ConsumedKgSnake,
-			"co2_would_have_been_consumed_kg": stats.CO2WouldHaveBeenConsumedKgSnake,
-			"co2_saved_kg":                    stats.CO2SavedKgSnake,
-			"total_completed_rides":           stats.TotalCompletedRidesSnake,
-			"total_shared_rides":              stats.TotalSharedRidesSnake,
-			"total_passengers":                stats.TotalPassengersSnake,
-			"individual_rides_saved":          stats.IndividualRidesSavedSnake,
-			"drivers_without_shotgun":         stats.DriversWithoutShotgunSnake,
-			"total_distance_km":               stats.TotalDistanceKmSnake,
-		})
+		c.JSON(http.StatusOK, SustainabilityStats{})
 		return
 	}
 
@@ -158,7 +127,7 @@ func (h *Impact) Get(c *gin.Context) {
 	individualRidesSaved := totalPassengers
 	driversWithoutShotgun := totalCompletedRides + totalPassengers
 
-	stats := SustainabilityStats{
+	c.JSON(http.StatusOK, SustainabilityStats{
 		CO2ConsumedKg:              totalCO2Consumed,
 		CO2WouldHaveBeenConsumedKg: totalCO2Would,
 		CO2SavedKg:                 totalCO2Saved,
@@ -169,37 +138,5 @@ func (h *Impact) Get(c *gin.Context) {
 		IndividualRidesSaved:  individualRidesSaved,
 		DriversWithoutShotgun: driversWithoutShotgun,
 		TotalDistanceKm:       totalDistanceKm,
-
-		CO2ConsumedKgSnake:              totalCO2Consumed,
-		CO2WouldHaveBeenConsumedKgSnake: totalCO2Would,
-		CO2SavedKgSnake:                 totalCO2Saved,
-		TotalCompletedRidesSnake:        totalCompletedRides,
-		TotalSharedRidesSnake:           totalSharedRides,
-		TotalPassengersSnake:            totalPassengers,
-		IndividualRidesSavedSnake:       individualRidesSaved,
-		DriversWithoutShotgunSnake:      driversWithoutShotgun,
-		TotalDistanceKmSnake:            totalDistanceKm,
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"impact":                          stats,
-		"co2ConsumedKg":                   stats.CO2ConsumedKg,
-		"co2WouldHaveBeenConsumedKg":      stats.CO2WouldHaveBeenConsumedKg,
-		"co2SavedKg":                      stats.CO2SavedKg,
-		"totalCompletedRides":             stats.TotalCompletedRides,
-		"totalSharedRides":                stats.TotalSharedRides,
-		"totalPassengers":                 stats.TotalPassengers,
-		"individualRidesSaved":            stats.IndividualRidesSaved,
-		"driversWithoutShotgun":           stats.DriversWithoutShotgun,
-		"totalDistanceKm":                 stats.TotalDistanceKm,
-		"co2_consumed_kg":                 stats.CO2ConsumedKgSnake,
-		"co2_would_have_been_consumed_kg": stats.CO2WouldHaveBeenConsumedKgSnake,
-		"co2_saved_kg":                    stats.CO2SavedKgSnake,
-		"total_completed_rides":           stats.TotalCompletedRidesSnake,
-		"total_shared_rides":              stats.TotalSharedRidesSnake,
-		"total_passengers":                stats.TotalPassengersSnake,
-		"individual_rides_saved":          stats.IndividualRidesSavedSnake,
-		"drivers_without_shotgun":         stats.DriversWithoutShotgunSnake,
-		"total_distance_km":               stats.TotalDistanceKmSnake,
 	})
 }
