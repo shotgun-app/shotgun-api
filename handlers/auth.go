@@ -278,12 +278,14 @@ func (a *Auth) UpdateMe(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"user": user})
 }
 
-// DeleteMe removes the user, their sessions go with it (ON DELETE CASCADE)
+// DeleteMe removes the user and their picture, their sessions go with it (ON DELETE CASCADE)
 func (a *Auth) DeleteMe(c *gin.Context) {
-	if _, err := a.DB.Exec(c.Request.Context(), `DELETE FROM users WHERE id = $1`, CurrentUser(c).ID); err != nil {
+	userID := CurrentUser(c).ID
+	if _, err := a.DB.Exec(c.Request.Context(), `DELETE FROM users WHERE id = $1`, userID); err != nil {
 		fail(c, http.StatusInternalServerError, "Something went wrong.")
 		return
 	}
+	a.removeProfilePics(userID, "")
 	a.clearCookie(c)
 	c.Status(http.StatusNoContent)
 }
