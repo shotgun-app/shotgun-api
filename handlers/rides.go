@@ -10,6 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"shotgun-api/services"
 )
 
 // Rides groups the ride handlers and the DB pool they share.
@@ -39,6 +41,31 @@ type Ride struct {
 	CreatedAt          time.Time `json:"createdAt"`
 	// Only served to the driver and passengers. Search leaves it nil, so omitzero drops it there
 	Passengers []PublicUser `json:"passengers,omitzero"`
+
+	// Environmental impact metrics
+	DistanceKm             int     `json:"distance_km"`
+	DistanceKmCamel        int     `json:"distanceKm"`
+	CO2ConsumedKg          float64 `json:"co2_consumed_kg"`
+	CO2ConsumedKgCamel     float64 `json:"co2ConsumedKg"`
+	CO2SavedKg             float64 `json:"co2_saved_kg"`
+	CO2SavedKgCamel        float64 `json:"co2SavedKg"`
+	CO2SavedPerPassengerKg float64 `json:"co2_saved_per_passenger_kg"`
+	IsElectric             bool    `json:"is_electric"`
+	IsElectricCamel        bool    `json:"isElectric"`
+}
+
+// PopulateCO2 calculates and fills environmental impact metrics for the ride.
+func (r *Ride) PopulateCO2(carCO2 *int) {
+	dist, consumed, saved, isElec := services.CalculateCO2(r.OriginCity, r.DestinationCity, r.SeatsBooked, carCO2)
+	r.DistanceKm = dist
+	r.DistanceKmCamel = dist
+	r.CO2ConsumedKg = consumed
+	r.CO2ConsumedKgCamel = consumed
+	r.CO2SavedKg = saved
+	r.CO2SavedKgCamel = saved
+	r.CO2SavedPerPassengerKg = saved
+	r.IsElectric = isElec
+	r.IsElectricCamel = isElec
 }
 
 // PublicUser is what other users may see of a driver or passenger. Contact details stay private
@@ -118,6 +145,11 @@ func scanRide(row pgx.Row) (*Ride, error) {
 // ListMine returns the rides driven by the current user, soonest first.
 func (ri *Rides) ListMine(c *gin.Context) {
 	user := CurrentUser(c)
+	var carCO2 *int
+	if user.Car != nil {
+		carCO2 = &user.Car.CO2
+	}
+
 	rows, err := ri.DB.Query(c.Request.Context(),
 		`SELECT `+rideColumns+` FROM rides WHERE driver_id = $1 ORDER BY departure_at ASC`, user.ID)
 	if err != nil {
@@ -133,6 +165,7 @@ func (ri *Rides) ListMine(c *gin.Context) {
 			fail(c, http.StatusInternalServerError, "Something went wrong.")
 			return
 		}
+		r.PopulateCO2(carCO2)
 		list = append(list, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -140,6 +173,56 @@ func (ri *Rides) ListMine(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"rides": list})
+}
+
+// Get returns a single ride by ID along with its driver and environmental metrics.
+func (ri *Rides) Get(c *gin.Context) {
+	id := c.Param("id")
+	if !isUUID(id) {
+		fail(c, http.StatusNotFound, "Ride not found.")
+		return
+	}
+
+	query := `
+		SELECT
+			r.id, r.driver_id, r.origin_city, r.origin_country, r.destination_city, r.destination_country,
+			r.departure_at, r.seats_total,
+			` + bookedOf("r.id") + `,
+			r.small_bags_total, r.large_bags_total,
+			r.price_per_seat, r.currency, r.notes, r.created_at,
+			` + passengersOf("r.id", "r.driver_id") + `,
+			u.id, u.name, u.created_at, ` + avatarURLOf("u.profile_pic_file_name") + `,
+			c.co2
+		FROM rides r
+		JOIN users u ON r.driver_id = u.id
+		LEFT JOIN cars c ON u.car_id = c.id
+		WHERE r.id = $1
+	`
+	var t TripWithDriver
+	var carCO2 *int
+	err := ri.DB.QueryRow(c.Request.Context(), query, id).Scan(
+		&t.ID, &t.DriverID,
+		&t.OriginCity, &t.OriginCountry,
+		&t.DestinationCity, &t.DestinationCountry,
+		&t.DepartureAt,
+		&t.SeatsTotal, &t.SeatsBooked, &t.SmallBagsBooked, &t.LargeBagsBooked,
+		&t.SmallBagsTotal, &t.LargeBagsTotal,
+		&t.PricePerSeat, &t.Currency, &t.Notes,
+		&t.CreatedAt, &t.Passengers,
+		&t.Driver.ID, &t.Driver.Name, &t.Driver.JoinedAt, &t.Driver.AvatarURL,
+		&carCO2,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			fail(c, http.StatusNotFound, "Ride not found.")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
+
+	t.PopulateCO2(carCO2)
+	c.JSON(http.StatusOK, gin.H{"trip": t, "ride": t})
 }
 
 // Search returns rides matching search criteria, ordered by departure_at ASC.
@@ -169,9 +252,11 @@ func (ri *Rides) Search(c *gin.Context) {
 			` + bookedOf("r.id") + `,
 			r.small_bags_total, r.large_bags_total,
 			r.price_per_seat, r.currency, r.notes, r.created_at,
-			u.id, u.name, u.created_at, ` + avatarURLOf("u.profile_pic_file_name") + `
+			u.id, u.name, u.created_at, ` + avatarURLOf("u.profile_pic_file_name") + `,
+			c.co2
 		FROM rides r
 		JOIN users u ON r.driver_id = u.id
+		LEFT JOIN cars c ON u.car_id = c.id
 		WHERE r.departure_at > now()
 	`
 	var args []any
@@ -211,6 +296,7 @@ func (ri *Rides) Search(c *gin.Context) {
 	list := make([]*TripWithDriver, 0)
 	for rows.Next() {
 		var t TripWithDriver
+		var carCO2 *int
 		err := rows.Scan(
 			&t.ID, &t.DriverID,
 			&t.OriginCity, &t.OriginCountry,
@@ -221,11 +307,13 @@ func (ri *Rides) Search(c *gin.Context) {
 			&t.PricePerSeat, &t.Currency, &t.Notes,
 			&t.CreatedAt,
 			&t.Driver.ID, &t.Driver.Name, &t.Driver.JoinedAt, &t.Driver.AvatarURL,
+			&carCO2,
 		)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, "Something went wrong.")
 			return
 		}
+		t.PopulateCO2(carCO2)
 		list = append(list, &t)
 	}
 	if err := rows.Err(); err != nil {
@@ -318,6 +406,11 @@ func (ri *Rides) Create(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "Something went wrong.")
 		return
 	}
+	var carCO2 *int
+	if user.Car != nil {
+		carCO2 = &user.Car.CO2
+	}
+	ride.PopulateCO2(carCO2)
 	c.JSON(http.StatusCreated, gin.H{"ride": ride})
 }
 
@@ -420,6 +513,11 @@ func (ri *Rides) Update(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "Something went wrong.")
 		return
 	}
+	var carCO2 *int
+	if user.Car != nil {
+		carCO2 = &user.Car.CO2
+	}
+	ride.PopulateCO2(carCO2)
 	c.JSON(http.StatusOK, gin.H{"ride": ride})
 }
 
