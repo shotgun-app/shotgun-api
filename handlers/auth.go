@@ -27,23 +27,32 @@ type Auth struct {
 
 // User is the JSON shape returned to the web app
 type User struct {
-	ID       string    `json:"id"`
-	Name     string    `json:"name"`
-	Email    string    `json:"email"`
-	Phone    *string   `json:"phone"`
-	JoinedAt time.Time `json:"joinedAt"`
-	Car      *Car      `json:"car"`
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Email     string    `json:"email"`
+	Phone     *string   `json:"phone"`
+	JoinedAt  time.Time `json:"joinedAt"`
+	Car       *Car      `json:"car"`
+	AvatarURL *string   `json:"avatarUrl"`
+}
+
+// ProfilePicPath is where profile pictures are served. A picture's URL is this plus its file name
+const ProfilePicPath = "/api/images/profile/"
+
+// avatarURLOf builds the picture URL from a profile_pic_file_name column. No picture stays NULL
+func avatarURLOf(column string) string {
+	return `'` + ProfilePicPath + `' || ` + column
 }
 
 // car is built in SQL so a user comes back with its car in one query. It refers to users.car_id,
 // so it only works in queries on the unaliased users table (session.go has its own copy)
-const userColumns = `id, name, email, phone, created_at,
+var userColumns = `id, name, email, phone, created_at,
 	(SELECT json_build_object('id', c.id, 'brand', c.brand, 'model', c.model, 'co2', c.co2)
-	 FROM cars c WHERE c.id = users.car_id)`
+	 FROM cars c WHERE c.id = users.car_id), ` + avatarURLOf("profile_pic_file_name")
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
-	if err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.JoinedAt, &u.Car); err != nil {
+	if err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.JoinedAt, &u.Car, &u.AvatarURL); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -173,7 +182,7 @@ func (a *Auth) Login(c *gin.Context) {
 	var user User
 	err := a.DB.QueryRow(ctx,
 		`SELECT `+userColumns+`, password_hash FROM users WHERE lower(email) = lower($1)`, email).
-		Scan(&user.ID, &user.Name, &user.Email, &user.Phone, &user.JoinedAt, &user.Car, &hash)
+		Scan(&user.ID, &user.Name, &user.Email, &user.Phone, &user.JoinedAt, &user.Car, &user.AvatarURL, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(req.Password))
 		fail(c, http.StatusUnauthorized, "Wrong email or password.")
@@ -269,12 +278,14 @@ func (a *Auth) UpdateMe(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"user": user})
 }
 
-// DeleteMe removes the user, their sessions go with it (ON DELETE CASCADE)
+// DeleteMe removes the user and their picture, their sessions go with it (ON DELETE CASCADE)
 func (a *Auth) DeleteMe(c *gin.Context) {
-	if _, err := a.DB.Exec(c.Request.Context(), `DELETE FROM users WHERE id = $1`, CurrentUser(c).ID); err != nil {
+	userID := CurrentUser(c).ID
+	if _, err := a.DB.Exec(c.Request.Context(), `DELETE FROM users WHERE id = $1`, userID); err != nil {
 		fail(c, http.StatusInternalServerError, "Something went wrong.")
 		return
 	}
+	a.removeProfilePics(userID, "")
 	a.clearCookie(c)
 	c.Status(http.StatusNoContent)
 }

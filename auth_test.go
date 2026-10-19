@@ -34,7 +34,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	cfg := &config.Config{AllowedOrigin: "http://localhost:5173", SessionTTL: time.Hour}
+	cfg := &config.Config{AllowedOrigin: "http://localhost:5173", SessionTTL: time.Hour, UploadDir: t.TempDir()}
 	return &testEnv{router: setupRouter(cfg, pool), pool: pool}
 }
 

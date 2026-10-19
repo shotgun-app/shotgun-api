@@ -13,6 +13,7 @@ type Config struct {
 	DatabaseURL   string
 	SessionTTL    time.Duration
 	CookieSecure  bool
+	UploadDir     string
 }
 
 // Load reads settings from environment variables and falls back to defaults for local development
@@ -25,6 +26,7 @@ func Load() *Config {
 		DatabaseURL:   getEnv("DATABASE_URL", "postgres://shotgun:shotgun@localhost:5432/shotgun?sslmode=disable"),
 		SessionTTL:    time.Duration(getEnvInt("SESSION_TTL_HOURS", 24*30)) * time.Hour,
 		CookieSecure:  getEnv("COOKIE_SECURE", "false") == "true",
+		UploadDir:     getEnv("UPLOAD_DIR", "uploads"),
 	}
 }
 

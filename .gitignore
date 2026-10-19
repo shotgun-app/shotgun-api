@@ -7,6 +7,9 @@ server
 # Local config
 .env
 
+# Profile pictures when running outside Docker
+uploads/
+
 # OS and editors
 .DS_Store
 .idea/

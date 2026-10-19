@@ -47,6 +47,8 @@ func setupRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
 	me.DELETE("", auth.DeleteMe)
 	me.GET("/sessions", auth.ListSessions)
 	me.DELETE("/sessions/:id", auth.DeleteSession)
+	me.PUT("/picture", auth.UploadProfilePic)
+	me.DELETE("/picture", auth.DeleteProfilePic)
 	r.POST("/auth/password", auth.RequireAuth, auth.ChangePassword)
 	r.POST("/auth/forgot-password", auth.ForgotPassword)
 	r.GET("/auth/reset-password", auth.CheckResetToken)
@@ -57,6 +59,13 @@ func setupRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
 	reviews := &handlers.Reviews{DB: pool}
 	users := &handlers.Users{DB: pool}
 	cars := &handlers.Cars{DB: pool}
+
+	// Public so the web app can use the URL as an <img> src. no-cache makes the browser check
+	// for a newer picture, since a new upload keeps the same URL
+	pics := r.Group(handlers.ProfilePicPath, func(c *gin.Context) {
+		c.Header("Cache-Control", "no-cache")
+	})
+	pics.Static("", cfg.UploadDir)
 
 	api := r.Group("/api", auth.RequireAuth)
 	api.GET("/users/:id", users.Get)

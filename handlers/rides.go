@@ -46,6 +46,7 @@ type PublicUser struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
 	JoinedAt     time.Time `json:"joinedAt"`
+	AvatarURL    *string   `json:"avatarUrl"`
 	ReviewRating *int      `json:"reviewRating,omitempty"`
 }
 
@@ -86,6 +87,7 @@ func passengersOf(rideID, driverIDCol string) string {
 		'id', pu.id, 
 		'name', pu.name, 
 		'joinedAt', pu.created_at,
+		'avatarUrl', ` + avatarURLOf("pu.profile_pic_file_name") + `,
 		'reviewRating', (
 			SELECT rv.rating FROM reviews rv 
 			WHERE rv.ride_id = ` + rideID + ` AND rv.reviewee_id = pu.id AND rv.reviewer_id = ` + driverIDCol + ` LIMIT 1
@@ -167,7 +169,7 @@ func (ri *Rides) Search(c *gin.Context) {
 			` + bookedOf("r.id") + `,
 			r.small_bags_total, r.large_bags_total,
 			r.price_per_seat, r.currency, r.notes, r.created_at,
-			u.id, u.name, u.created_at
+			u.id, u.name, u.created_at, ` + avatarURLOf("u.profile_pic_file_name") + `
 		FROM rides r
 		JOIN users u ON r.driver_id = u.id
 		WHERE r.departure_at > now()
@@ -218,7 +220,7 @@ func (ri *Rides) Search(c *gin.Context) {
 			&t.SmallBagsTotal, &t.LargeBagsTotal,
 			&t.PricePerSeat, &t.Currency, &t.Notes,
 			&t.CreatedAt,
-			&t.Driver.ID, &t.Driver.Name, &t.Driver.JoinedAt,
+			&t.Driver.ID, &t.Driver.Name, &t.Driver.JoinedAt, &t.Driver.AvatarURL,
 		)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, "Something went wrong.")

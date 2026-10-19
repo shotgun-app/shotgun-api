@@ -36,8 +36,11 @@ Errors are JSON: `{"message": "..."}`.
 | `GET`    | `/auth/reset-password?token=` | no | `204` if the token is valid and unexpired, `400` otherwise; does not use it up |
 | `POST`   | `/auth/reset-password`  | no | `{token, password}`, `204`, `400` invalid or expired token; ends all of the user's sessions |
 | `PUT`    | `/auth/me/car`   | yes  | `{carId}` (uuid, or `null` to clear), `200 {user}`, `400` invalid id, `404` unknown car |
+| `PUT`    | `/auth/me/picture` | yes | multipart field `picture` (JPEG, PNG or WebP, at most 5 MB), `200 {user}`, `400` not an image, `413` too large |
+| `DELETE` | `/auth/me/picture` | yes | removes the picture, `200 {user}` |
+| `GET`    | `/api/images/profile/:file` | no | the picture file, served from `UPLOAD_DIR` |
 
-`user` is `{id, name, email, phone, joinedAt, car}`. `car` is `{id, brand, model, co2}` (`co2` in grams per km) or `null` when the user has not picked one. A session is `{id, userAgent, createdAt, expiresAt, current}`; `userAgent` is the User-Agent header from login or register, and `current` marks the session making the request. `phone` is E.164 (`+38640123456`) and required on register; `PATCH` cannot empty it. Accounts created before this rule may still have `null`. Settings (`SESSION_TTL_HOURS`,
+`user` is `{id, name, email, phone, joinedAt, car, avatarUrl}`. `avatarUrl` is a path on the API (`/api/images/profile/<user id>.<ext>`) or `null` without a picture; drivers and passengers in rides have it too. `car` is `{id, brand, model, co2}` (`co2` in grams per km) or `null` when the user has not picked one. A session is `{id, userAgent, createdAt, expiresAt, current}`; `userAgent` is the User-Agent header from login or register, and `current` marks the session making the request. `phone` is E.164 (`+38640123456`) and required on register; `PATCH` cannot empty it. Accounts created before this rule may still have `null`. Settings (`SESSION_TTL_HOURS`,
 `COOKIE_SECURE`, `ALLOWED_ORIGIN`) are in `.env.example`.
 Set `COOKIE_SECURE=true` when serving over HTTPS.
 

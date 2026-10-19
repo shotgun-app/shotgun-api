@@ -79,7 +79,7 @@ func (bkg *Bookings) ListMine(c *gin.Context) {
 				r.small_bags_total, r.large_bags_total,
 			r.price_per_seat, r.currency, r.notes, r.created_at,
 			`+passengersOf("r.id", "r.driver_id")+`,
-			d.id, d.name, d.created_at,
+			d.id, d.name, d.created_at, `+avatarURLOf("d.profile_pic_file_name")+`,
 			(
 				SELECT rv.rating
 				FROM reviews rv
@@ -112,7 +112,7 @@ func (bkg *Bookings) ListMine(c *gin.Context) {
 			&bt.Trip.SmallBagsTotal, &bt.Trip.LargeBagsTotal,
 			&bt.Trip.PricePerSeat, &bt.Trip.Currency, &bt.Trip.Notes,
 			&bt.Trip.CreatedAt, &bt.Trip.Passengers,
-			&bt.Trip.Driver.ID, &bt.Trip.Driver.Name, &bt.Trip.Driver.JoinedAt,
+			&bt.Trip.Driver.ID, &bt.Trip.Driver.Name, &bt.Trip.Driver.JoinedAt, &bt.Trip.Driver.AvatarURL,
 			&bt.ReviewRating,
 		)
 		if err != nil {
