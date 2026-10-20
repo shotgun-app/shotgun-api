@@ -100,11 +100,19 @@ func (u *Users) Get(c *gin.Context) {
 		passengerScore = float64(passengerSum) / float64(passengerCount)
 	}
 
+	passenger, err := passengerImpact(c.Request.Context(), u.DB, id)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
+	// TODO(driver impact): compute driverImpact here and add it to the response as "driverImpact"
+
 	c.JSON(http.StatusOK, gin.H{
 		"user":             user,
 		"driverScore":      driverScore,
 		"passengerScore":   passengerScore,
 		"reviews":          driverReviews,
 		"passengerReviews": passengerReviews,
+		"passengerImpact":  passenger,
 	})
 }
