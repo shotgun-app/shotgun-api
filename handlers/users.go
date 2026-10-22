@@ -105,14 +105,22 @@ func (u *Users) Get(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "Something went wrong.")
 		return
 	}
-	// TODO(driver impact): compute driverImpact here and add it to the response as "driverImpact"
+	driver, err := driverImpact(c.Request.Context(), u.DB, id)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "Something went wrong.")
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"user":             user,
-		"driverScore":      driverScore,
-		"passengerScore":   passengerScore,
-		"reviews":          driverReviews,
-		"passengerReviews": passengerReviews,
-		"passengerImpact":  passenger,
+		"user":                user,
+		"driverScore":         driverScore,
+		"passengerScore":      passengerScore,
+		"reviews":             driverReviews,
+		"passengerReviews":    passengerReviews,
+		"passengerImpact":     passenger,
+		"driverImpact":        driver,
+		"driver_co2_saved_kg": driver.CO2SavedKg,
+		"rides_offered_count": driver.Rides,
+		"cars_reduced_count":  driver.Rides,
 	})
 }
