@@ -1,0 +1,2 @@
+ALTER TABLE users ADD COLUMN bio varchar(1000) NOT NULL DEFAULT '';
+
