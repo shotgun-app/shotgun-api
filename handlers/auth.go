@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -31,6 +32,7 @@ type User struct {
 	Name      string    `json:"name"`
 	Email     string    `json:"email"`
 	Phone     *string   `json:"phone"`
+	Bio       string    `json:"bio"`
 	JoinedAt  time.Time `json:"joinedAt"`
 	Car       *Car      `json:"car"`
 	AvatarURL *string   `json:"avatarUrl"`
@@ -46,13 +48,13 @@ func avatarURLOf(column string) string {
 
 // car is built in SQL so a user comes back with its car in one query. It refers to users.car_id,
 // so it only works in queries on the unaliased users table (session.go has its own copy)
-var userColumns = `id, name, email, phone, created_at,
+var userColumns = `id, name, email, phone, bio, created_at,
 	(SELECT json_build_object('id', c.id, 'brand', c.brand, 'model', c.model, 'co2', c.co2)
 	 FROM cars c WHERE c.id = users.car_id), ` + avatarURLOf("profile_pic_file_name")
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
-	if err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.JoinedAt, &u.Car, &u.AvatarURL); err != nil {
+	if err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.Bio, &u.JoinedAt, &u.Car, &u.AvatarURL); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -182,7 +184,7 @@ func (a *Auth) Login(c *gin.Context) {
 	var user User
 	err := a.DB.QueryRow(ctx,
 		`SELECT `+userColumns+`, password_hash FROM users WHERE lower(email) = lower($1)`, email).
-		Scan(&user.ID, &user.Name, &user.Email, &user.Phone, &user.JoinedAt, &user.Car, &user.AvatarURL, &hash)
+		Scan(&user.ID, &user.Name, &user.Email, &user.Phone, &user.Bio, &user.JoinedAt, &user.Car, &user.AvatarURL, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(req.Password))
 		fail(c, http.StatusUnauthorized, "Wrong email or password.")
@@ -220,6 +222,7 @@ type updateRequest struct {
 	Name  *string `json:"name"`
 	Email *string `json:"email"`
 	Phone *string `json:"phone"`
+	Bio   *string `json:"bio"`
 }
 
 func (a *Auth) UpdateMe(c *gin.Context) {
@@ -261,12 +264,23 @@ func (a *Auth) UpdateMe(c *gin.Context) {
 		phone = &p
 	}
 
+	setBio := req.Bio != nil
+	var bio string
+	if setBio {
+		trimmedBio := strings.TrimSpace(*req.Bio)
+		if utf8.RuneCountInString(trimmedBio) > 1000 {
+			fail(c, http.StatusBadRequest, "Bio must be at most 1000 characters.")
+			return
+		}
+		bio = trimmedBio
+	}
+
 	// COALESCE keeps the current value for name/email that were not sent
 	user, err := scanUser(a.DB.QueryRow(c.Request.Context(),
 		`UPDATE users SET name = COALESCE($2, name), email = COALESCE($3, email),
-		 phone = CASE WHEN $5 THEN $4 ELSE phone END, updated_at = now()
+		 phone = CASE WHEN $5 THEN $4 ELSE phone END, bio = CASE WHEN $7 THEN $6 ELSE bio END, updated_at = now()
 		 WHERE id = $1 RETURNING `+userColumns,
-		CurrentUser(c).ID, req.Name, req.Email, phone, setPhone))
+		CurrentUser(c).ID, req.Name, req.Email, phone, setPhone, bio, setBio))
 	if err != nil {
 		if isUniqueViolation(err) {
 			fail(c, http.StatusConflict, "An account with that email already exists.")

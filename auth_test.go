@@ -342,3 +342,35 @@ func TestPhone(t *testing.T) {
 		t.Errorf("emptying the phone = %d, want 400", rec.Code)
 	}
 }
+
+func TestBio(t *testing.T) {
+	e := newTestEnv(t)
+	email := uniqueEmail()
+	e.cleanup(t, email)
+	cookie := sessionCookie(e.do("POST", "/auth/register", registerBody(email), nil))
+
+	rec := e.do("GET", "/auth/me", "", cookie)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"bio":""`) {
+		t.Fatalf("initial bio = %d %s", rec.Code, rec.Body)
+	}
+
+	rec = e.do("PATCH", "/auth/me", `{"bio":"Hello, commuter!"}`, cookie)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"bio":"Hello, commuter!"`) {
+		t.Fatalf("set bio = %d %s", rec.Code, rec.Body)
+	}
+
+	rec = e.do("PATCH", "/auth/me", `{"name":"Only Name"}`, cookie)
+	if !strings.Contains(rec.Body.String(), `"bio":"Hello, commuter!"`) {
+		t.Errorf("bio must survive an update that omits it: %s", rec.Body)
+	}
+
+	tooLong := strings.Repeat("a", 1001)
+	if rec = e.do("PATCH", "/auth/me", fmt.Sprintf(`{"bio":%q}`, tooLong), cookie); rec.Code != http.StatusBadRequest {
+		t.Errorf("bio over 1000 chars = %d, want 400", rec.Code)
+	}
+
+	rec = e.do("PATCH", "/auth/me", `{"bio":""}`, cookie)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"bio":""`) {
+		t.Fatalf("clear bio = %d %s", rec.Code, rec.Body)
+	}
+}

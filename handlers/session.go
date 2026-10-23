@@ -65,7 +65,7 @@ func (a *Auth) RequireAuth(c *gin.Context) {
 		return
 	}
 	user, err := scanUser(a.DB.QueryRow(c.Request.Context(),
-		`SELECT u.id, u.name, u.email, u.phone, u.created_at,
+		`SELECT u.id, u.name, u.email, u.phone, u.bio, u.created_at,
 		(SELECT json_build_object('id', c.id, 'brand', c.brand, 'model', c.model, 'co2', c.co2)
 		FROM cars c WHERE c.id = u.car_id), `+avatarURLOf("u.profile_pic_file_name")+`
 		FROM sessions s JOIN users u ON u.id = s.user_id
